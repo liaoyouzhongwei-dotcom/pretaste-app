@@ -14,7 +14,8 @@ jobs:
       - run: npm ci
       - name: Leak guard (keys and Qloo-response-like data)
         run: npm run check-leaks
-      - run: npx tsc --noEmit
+      - name: Type check (generates Next route types first, so a fresh clone passes)
+        run: npm run typecheck
       - run: npm run lint
       - run: npm test
       - run: npm run build

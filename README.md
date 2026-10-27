@@ -21,6 +21,7 @@ Other scripts:
 ```bash
 npm run build        # production build
 npm run lint         # ESLint
+npm run typecheck    # TypeScript (generates Next route types first)
 npm run check-leaks  # scan the repo for keys and Qloo-response-like data
 npm test             # regression tests (src/lib/*.test.ts, Node test runner, no keys or network)
 ```

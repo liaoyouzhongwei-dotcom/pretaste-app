@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
     "check-leaks": "node scripts/check-leaks.mjs --all",
     "test": "node scripts/run-tests.mjs"
   },
