@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks keys and Qloo-response-like data. Enable once per clone:
+#   git config core.hooksPath .githooks
+exec node scripts/check-leaks.mjs
