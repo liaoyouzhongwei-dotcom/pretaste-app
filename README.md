@@ -99,6 +99,7 @@ or durable exactly-once guarantee. A new UUID avoids matching an earlier attempt
 
 - Search rejects unrelated titles, ambiguous identities and unverified rephrases. Conservative
   title normalization and a small, explicit alias list do not silently substitute another work.
+  Search text is limited to 100 UTF-16 code units after an observed API validation rejection; returned titles are still checked against the complete original title.
 - Numeric claims must match the cited subject and metric. Affinity cannot become a purchase
   percentage; female and male signals cannot be exchanged. Unsupported measurements are removed.
 - A partial failure in the comparison data holds all recommendations rather than ranking ideas

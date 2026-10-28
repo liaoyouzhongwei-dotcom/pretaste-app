@@ -17,6 +17,8 @@ import { newRun, runStep } from "./pipeline";
 import { provenanceLines } from "./provenance";
 import { searchEntity } from "./qloo/endpoints";
 import { synId } from "./qloo/mock";
+import { qlooGet } from "./qloo/client";
+import { describeQlooError, QlooError } from "./qloo/types";
 import { serializeState, signState, verifyState } from "./state-token";
 import type { AssumptionSheet, MakerAssumption, RunState } from "./types";
 
@@ -188,6 +190,65 @@ test("listing guard rejects resolved names, punctuation variants and common alia
   assert.deepEqual(output.listing.tags, ["generic notebook"]);
   assert.equal(output.notes.length, 4);
   assert.equal(checkListingNames({ ...output.listing, title: "Foxglove notebook" }, ["Fox"]).listing.title, "Foxglove notebook");
+});
+
+test("Qloo HTTP failures keep their status and distinguish rejected requests from retried server errors", async () => {
+  const savedKey = process.env.QLOO_API_KEY;
+  const savedMode = process.env.QLOO_MODE;
+  process.env.QLOO_API_KEY = "SYN-test";
+  delete process.env.QLOO_MODE;
+  try {
+    for (const [status, kind, attempts] of [[400, "request_rejected", 1], [422, "request_rejected", 1], [500, "server", 3], [302, "bad_response", 1]] as const) {
+      let requests = 0;
+      mock.method(globalThis, "fetch", async () => {
+        requests++;
+        return new Response("{}", { status, headers: { "retry-after": "0.001" } });
+      });
+      await assert.rejects(qlooGet("/search", { query: `Synthetic HTTP failure ${status}` }, { step: 2 }), (e: unknown) => {
+        assert.ok(e instanceof QlooError);
+        assert.equal(e.kind, kind);
+        assert.equal(e.status, status);
+        const message = describeQlooError(e);
+        assert.ok(message.includes(`HTTP ${status}`));
+        assert.doesNotMatch(message, /Retried/i, "the banner must not invent a retry history");
+        if (status < 500) assert.doesNotMatch(message, /server error/i);
+        return true;
+      });
+      assert.equal(requests, attempts, `HTTP ${status} retains the existing retry policy`);
+    }
+  } finally {
+    if (savedKey === undefined) delete process.env.QLOO_API_KEY; else process.env.QLOO_API_KEY = savedKey;
+    if (savedMode === undefined) delete process.env.QLOO_MODE; else process.env.QLOO_MODE = savedMode;
+  }
+});
+
+test("a rejected Qloo request keeps HTTP 400 in the failure receipt and leaves coverage incomplete", async () => {
+  const run = state();
+  run.comparables = [{ name: "Synthetic rejected comparable", kind: "book", idea: 0 }];
+  run.lastStep = 1;
+  const savedKey = process.env.QLOO_API_KEY;
+  const savedMode = process.env.QLOO_MODE;
+  process.env.QLOO_API_KEY = "SYN-test";
+  delete process.env.QLOO_MODE;
+  let requests = 0;
+  mock.method(globalThis, "fetch", async () => {
+    requests++;
+    return new Response("{}", { status: 400 });
+  });
+  try {
+    const result = await runStep(2, run);
+    assert.equal(requests, 1);
+    assert.equal(result.coverageIncomplete, true);
+    assert.equal(result.resolved?.[0].status, "failed");
+    const receipt = result.calls.find(c => c.step === 2 && c.status === 400);
+    assert.ok(receipt, "the observed status must survive the pipeline error boundary");
+    assert.deepEqual(receipt.params, {}, "unavailable parameters must not be invented");
+    assert.match(result.errors[0].message, /rejected this request \(HTTP 400\)/);
+    assert.doesNotMatch(result.errors[0].message, /server error|Retried/i);
+  } finally {
+    if (savedKey === undefined) delete process.env.QLOO_API_KEY; else process.env.QLOO_API_KEY = savedKey;
+    if (savedMode === undefined) delete process.env.QLOO_MODE; else process.env.QLOO_MODE = savedMode;
+  }
 });
 
 test("a 429 after 1 of 3 planned comparables keeps the planned denominator and holds the recommendation", async () => {
@@ -628,6 +689,41 @@ test("search takes the result whose name is the query and flags a different titl
   );
   assert.equal(other.entity, null);
   assert.ok(other.record.warnings.some((w) => w.startsWith('ambiguous or different title for "Synthetic Saga"')), JSON.stringify(other.record));
+});
+
+test("long search text is bounded for Qloo while complete original titles remain the identity check", async () => {
+  const original = `Synthetic complete ${"a".repeat(110)}`;
+  const prefixOnly = `Synthetic different ${"b".repeat(110)}`;
+  const surrogateBoundary = `Synthetic ${"c".repeat(89)}😀`;
+  const sent: string[] = [];
+  await withLiveQloo((url) => {
+    const query = new URL(url).searchParams.get("query")!;
+    sent.push(query);
+    const name = query.startsWith("Synthetic complete") ? original : query.startsWith("Synthetic different") ? query : surrogateBoundary;
+    return JSON.stringify({ results: [{ entity_id: `SYN-long-${sent.length}`, name, types: ["urn:entity:book"] }] });
+  }, async () => {
+    const accepted = await searchEntity(original, "book", 2);
+    assert.equal(accepted.entity?.name, original, "a full original title can match even when the search text is shortened");
+    assert.equal(accepted.record.params.query, original.slice(0, 100));
+    assert.ok(accepted.record.warnings.some(w => w.includes("complete original title") && w.includes(original)));
+    const rejected = await searchEntity(prefixOnly, "book", 2);
+    assert.equal(rejected.entity, null, "a different work matching only the sent prefix cannot supply an audience");
+    assert.ok(rejected.record.warnings.some(w => w.includes("no unique verified name match")));
+    const unicode = await searchEntity(`  ${surrogateBoundary}  `, "book", 2);
+    assert.equal(unicode.entity?.name, surrogateBoundary);
+    assert.ok(unicode.record.params.query.length <= 100);
+    assert.doesNotMatch(unicode.record.params.query, /[\uD800-\uDBFF]$/);
+    const beforeBlank = sent.length;
+    await assert.rejects(searchEntity("  \t ", "book", 2), (e: unknown) => {
+      assert.ok(e instanceof QlooError);
+      assert.equal(e.kind, "blocked");
+      assert.match(describeQlooError(e), /input/);
+      return true;
+    });
+    assert.equal(sent.length, beforeBlank, "empty queries never leave the app");
+  });
+  assert.equal(sent.length, 3);
+  assert.ok(sent.every(q => q.trim() === q && q.length > 0 && q.length <= 100));
 });
 
 test("a model answer with no usable comparable falls back to the offline list instead of an empty success (N11)", async () => {

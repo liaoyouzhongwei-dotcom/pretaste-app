@@ -92,7 +92,9 @@ function kindForStatus(status: number): QlooError["kind"] {
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
   if (status === 429) return "rate_limited";
-  return "server";
+  if (status >= 400 && status < 500) return "request_rejected";
+  if (status >= 500 && status < 600) return "server";
+  return "bad_response";
 }
 
 async function liveGet(apiPath: string, params: Record<string, string>): Promise<{ status: number; json: unknown }> {

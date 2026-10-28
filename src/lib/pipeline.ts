@@ -98,7 +98,7 @@ async function runQloo(state: RunState, step: number, fn: () => Promise<void>): 
         callId: `c${step}-failed-${randomBytes(3).toString("hex")}`,
         step,
         path: `pipeline step ${step} (failed request)`,
-        params: {}, status: "error", source: qlooSource() === "mock" ? "mock" : "qloo", cached: false,
+        params: {}, status: e.status ?? "error", source: qlooSource() === "mock" ? "mock" : "qloo", cached: false,
         durationMs: 0, warnings: [describeQlooError(e), "Failure recorded at the pipeline boundary; request parameters and duration were not captured."],
       });
     }

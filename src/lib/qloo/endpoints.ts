@@ -8,6 +8,7 @@ import type { AgeBand, ComparableKind } from "../types";
 import { AGE_BANDS } from "../types";
 import { qlooGet } from "./client";
 import { stateOf } from "./geo";
+import { QlooError } from "./types";
 import type {
   QlooCompareResponse,
   QlooEntity,
@@ -33,11 +34,16 @@ export async function searchEntity(
   kind: ComparableKind,
   step: number,
 ): Promise<{ entity: QlooEntity | null; record: CallRecord }> {
+  // Qloo rejects queries over 100 characters. Bound only the transmitted search text;
+  // the complete original query below remains the authority for title identity.
+  const searchQuery = query.trim().slice(0, 100).replace(/[\uD800-\uDBFF]$/, "").trimEnd();
+  if (!searchQuery) throw new QlooError("blocked", "Search query must not be blank");
   const { data, record } = await qlooGet<QlooSearchResponse>(
     "/search",
-    { query, types: KIND_TO_URN[kind], take: "5" },
+    { query: searchQuery, types: KIND_TO_URN[kind], take: "5" },
     { step, expect: ["results"] },
   );
+  if (searchQuery !== query) record.warnings.push(`search query trimmed/limited to 100 UTF-16 code units; identity checked against the complete original title: "${query}"`);
   // `types` and `take` on /search are not in the public parameter guide (checked 2026-10-22,
   // docs/qloo-params.md), so do not trust the server to have filtered: take the first result
   // that carries the requested type, and drop the name if none does.

@@ -87,7 +87,7 @@ const Step1Schema = z.object({
   candidateTags: z.array(z.string()),
 });
 
-const RephraseSchema = z.object({ query: z.string() });
+const RephraseSchema = z.object({ query: z.string().trim().min(1).max(100) });
 
 const PracticalSchema = z.object({
   ideas: z.array(
@@ -361,8 +361,8 @@ export async function step1Comparables(
 // ---------------------------------------------------------------------------
 export function offlineRephrase(name: string): string {
   const base = name.split(/[:(–—-]/)[0].trim();
-  if (base && base !== name) return base;
-  return name.split(/\s+/).slice(0, 3).join(" ");
+  const query = base && base !== name ? base : name.trim().split(/\s+/).slice(0, 3).join(" ");
+  return query.slice(0, 100).replace(/[\uD800-\uDBFF]$/, "").trimEnd();
 }
 
 export async function rephraseQuery(name: string, kind: ComparableKind): Promise<LlmResult<string>> {
@@ -373,10 +373,11 @@ export async function rephraseQuery(name: string, kind: ComparableKind): Promise
         schema: RephraseSchema,
         effort: "low",
         maxTokens: 200,
-        system: "An entity search returned nothing. Give the single most likely canonical title to search instead.",
+        system: "An entity search returned nothing. Give the single most likely canonical title to search instead. Return only one title of 1–100 characters, with no explanation.",
         user: `Not found: "${name}" (${kind}).`,
       });
-      return out?.query?.trim() ? out.query.trim() : null;
+      const parsed = RephraseSchema.safeParse(out);
+      return parsed.success ? parsed.data.query : null;
     },
     () => offlineRephrase(name),
     "rules",

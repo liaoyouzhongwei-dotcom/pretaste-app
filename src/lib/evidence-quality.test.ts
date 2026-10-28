@@ -116,7 +116,7 @@ test("a failed taste request records failure and keeps the inspected focus on av
   mock.method(globalThis, "fetch", async () => new Response("{}", { status: 403 }));
   try {
     const failed = await runStep(4, state);
-    assert.ok(failed.calls.some((c) => c.status === "error" && c.step === 4));
+    assert.ok(failed.calls.some((c) => c.status === 403 && c.step === 4));
     const focused = await runStep(7, failed);
     assert.equal(focused.focusIdea, 1);
     assert.ok(focused.ranking?.every((r) => r.call === "hold"));

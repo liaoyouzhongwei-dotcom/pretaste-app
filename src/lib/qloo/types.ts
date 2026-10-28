@@ -94,6 +94,7 @@ export type QlooErrorKind =
   | "forbidden"
   | "not_found"
   | "rate_limited"
+  | "request_rejected"
   | "server"
   | "network"
   | "blocked"
@@ -121,13 +122,15 @@ export function describeQlooError(e: QlooError): string {
       return "Qloo endpoint not found (404).";
     case "rate_limited":
       return "Qloo rate limit reached (429). Try a prepared scenario, or wait a minute.";
+    case "request_rejected":
+      return `Qloo rejected this request${e.status === undefined ? "" : ` (HTTP ${e.status})`}. This check could not be completed.`;
     case "server":
-      return "Qloo had a server error. Retried and gave up.";
+      return `Qloo returned a server error${e.status === undefined ? "" : ` (HTTP ${e.status})`}. This check could not be completed.`;
     case "network":
       return "Could not reach Qloo (network/timeout).";
     case "blocked":
-      return "Request blocked by Pretaste's own guard (host/method/path).";
+      return "Request blocked by Pretaste's own guard (host/method/path/input).";
     case "bad_response":
-      return "Qloo returned an unexpected response shape.";
+      return `Qloo returned an unexpected response${e.status === undefined ? "" : ` (HTTP ${e.status})`}. This check could not be completed.`;
   }
 }
