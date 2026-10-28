@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
+    ...(process.env.PRETASTE_WORKSPACE_ROOT ? { root: process.env.PRETASTE_WORKSPACE_ROOT } : {}),
     rules: {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],

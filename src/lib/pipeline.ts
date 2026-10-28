@@ -18,7 +18,7 @@ import { MODELS, qlooMode } from "./config";
 import { buildCommit } from "./build-info";
 import { checkPractical } from "./practical";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables, rephraseQuery, type LlmResult } from "./llm/tasks";
-import { compareGroups, demographics, heatmap, isFiniteNumber, KIND_TO_URN, neighbors, searchEntity, trending } from "./qloo/endpoints";
+import { compareGroups, demographics, heatmap, isFiniteNumber, KIND_TO_URN, neighbors, sameEntityName, searchEntity, trending } from "./qloo/endpoints";
 import { describeQlooError, QlooError, TRENDING_TYPES, type QlooEntityType } from "./qloo/types";
 import { computeVerdicts, likeCandidates, rankIdeas } from "./rules";
 import { FOCUS_IDEA, type ComparableKind, type NeighborEntity, type ProductInput, type ResolvedComparable, type RunState, type Source } from "./types";
@@ -90,7 +90,18 @@ async function runQloo(state: RunState, step: number, fn: () => Promise<void>): 
   try {
     await fn();
   } catch (e) {
-    if (e instanceof QlooError) state.errors.push({ step, message: describeQlooError(e) });
+    if (e instanceof QlooError) {
+      state.errors.push({ step, message: describeQlooError(e) });
+      // Failed requests need a receipt too. The precise params are unavailable at this boundary;
+      // do not pretend the request succeeded or invent values for the failed call.
+      state.calls.push({
+        callId: `c${step}-failed-${randomBytes(3).toString("hex")}`,
+        step,
+        path: `pipeline step ${step} (failed request)`,
+        params: {}, status: "error", source: qlooSource() === "mock" ? "mock" : "qloo", cached: false,
+        durationMs: 0, warnings: [describeQlooError(e), "Failure recorded at the pipeline boundary; request parameters and duration were not captured."],
+      });
+    }
     else throw e;
   }
 }
@@ -134,6 +145,11 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
             if (r.value && r.value !== c.name) {
               state.decisions.push({ step: 2, kind: "rephrase", detail: `"${c.name}" not found -> retried as "${r.value}" (${r.source})` });
               ({ entity, record } = await searchEntity(r.value, c.kind, 2));
+              if (entity && !sameEntityName(c.name, entity.name!, c.kind)) {
+                record.warnings.push(`unverified rephrase identity: original "${c.name}" does not match "${entity.name}"; candidate not used`);
+                state.decisions.push({ step: 2, kind: "skip", detail: `Rephrase found "${entity.name}", but its identity as "${c.name}" is unverified; no audience borrowed.` });
+                entity = null;
+              }
               calls(record);
               rephrased = true;
             }
@@ -265,7 +281,8 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
     }
     case 7: {
       state.ranking = rankIdeas(state);
-      state.focusIdea = state.ranking.find((r) => !r.dontMake)?.idea ?? FOCUS_IDEA;
+      state.focusIdea = state.ranking.find((r) => !r.dontMake)?.idea
+        ?? state.ranking.find((r) => r.onHold && r.parts.found > 0)?.idea ?? FOCUS_IDEA;
       state.neighbors = state.ideaNeighbors?.find((x) => x.idea === state.focusIdea)?.neighbors ?? [];
       const draft = state.ideaDrafts?.find((d) => d.idea === state.focusIdea);
       state.assumptions = draft?.assumptions;
@@ -352,7 +369,9 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         state.input.ideas[state.focusIdea],
       );
       state.groundedListing = names.listing;
-      state.practical = checkPractical(v.practical, state.input.ideas.length, state.ranking ?? [], state.input.priceUsd);
+      const practical = v.practical && state.ranking?.some((r) => r.onHold)
+        ? { ...v.practical, tieBreak: null } : v.practical;
+      state.practical = checkPractical(practical, state.input.ideas.length, state.ranking ?? [], state.input.priceUsd);
       state.groundedClaims = [...check.kept, ...check.downgraded.map((d) => d.claim)];
       state.checker = {
         downgraded: check.downgraded.length,

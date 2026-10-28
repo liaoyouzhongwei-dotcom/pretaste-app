@@ -273,6 +273,9 @@ export function rankIdeas(state: RunState): IdeaScore[] {
   const n = state.input.ideas.length;
   const resolved = state.resolved ?? [];
   const out: IdeaScore[] = [];
+  // An interrupted shared comparison is not evidence against whichever idea happened to be
+  // queried later. Keep the available scores for inspection, but make no production decision.
+  const failedComparisons = [...new Set(state.errors.filter((e) => [2, 4, 5, 6].includes(e.step)).map((e) => e.step))];
   const trendIds = new Set((state.trends ?? []).map((t) => t.entityId));
   // One signal set for the whole run: trend counts only when every idea with a found comparable has it.
   // Otherwise trend is dropped for all, so one idea's extra trend cannot reorder the others (N07).
@@ -307,9 +310,10 @@ export function rankIdeas(state: RunState): IdeaScore[] {
       : r2(0.4 * affinity + 0.3 * trend + 0.3 * found - 0.2 * overlap);
 
     const checkedN = mine.filter((r) => r.status !== "failed" && r.status !== "unprocessed").length;
-    const onHold = checkedN < mine.length;
+    const onHold = checkedN < mine.length || failedComparisons.length > 0;
     let dontMakeReason: string | null = null;
-    if (onHold) dontMakeReason = `On hold: Qloo stopped partway, so only ${checkedN} of ${mine.length} planned comparables were checked (${foundN} found). Re-run before deciding.`;
+    if (failedComparisons.length) dontMakeReason = `On hold: Qloo comparison step(s) ${failedComparisons.join(", ")} failed or stopped partway; ${checkedN} of ${mine.length} planned comparables for this idea were checked (${foundN} found). The available scores are provisional, not evidence to make or reject an idea. Re-run before deciding.`;
+    else if (onHold) dontMakeReason = `On hold: Qloo stopped partway, so only ${checkedN} of ${mine.length} planned comparables were checked (${foundN} found). Re-run before deciding.`;
     else if (foundN === 0) dontMakeReason = "None of its comparables were found in Qloo, so nothing backs it.";
     else if (found < THRESHOLDS.minFoundRatio) dontMakeReason = `Only ${foundN} of ${mine.length} comparables were found: too little evidence to recommend it.`;
     else if (topOwn.length === 0) dontMakeReason = returnedN > 0

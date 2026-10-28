@@ -42,15 +42,23 @@ export async function searchEntity(
   // docs/qloo-params.md), so do not trust the server to have filtered: take the first result
   // that carries the requested type, and drop the name if none does.
   const named = data.results?.filter((e) => e.entity_id && e.name) ?? [];
-  const typed = named.filter((e) => !e.types || e.types.includes(KIND_TO_URN[kind]));
+  const typed = named.filter((e) => e.types ? e.types.includes(KIND_TO_URN[kind]) : !e.type || e.type === KIND_TO_URN[kind]);
   if (typed.length === 0 && named.length > 0) {
     record.warnings.push(`type mismatch for "${query}": got ${named.map((e) => (e.types ?? []).join("/")).join(", ")}`);
   }
   // Prefer the result whose name is the query; the first hit can be a different title that shares words.
   const q = nameKey(query);
-  const match = typed.find((e) => nameKey(e.name!) === q) ?? typed.find((e) => nameKey(e.name!).includes(q)) ?? typed[0] ?? null;
+  const exact = typed.filter((e) => nameKey(e.name!) === q);
+  const aliases = typed.filter((e) => sameEntityName(e.name!, query, kind));
+  // A prefix is not an identity: a sequel, another volume or an unrelated first hit must not
+  // silently become the audience for this idea. Only normalization and explicit aliases qualify.
+  const candidates = exact.length ? exact : aliases;
+  const unique = [...new Map(candidates.map((e) => [e.entity_id, e])).values()];
+  const match = unique.length === 1 ? unique[0] : null;
   if (match && nameKey(match.name!) !== q) {
-    record.warnings.push(`name differs for "${query}": using "${match.name}" (${match.entity_id})`);
+    record.warnings.push(`verified name variant for "${query}": "${match.name}" (${match.entity_id}); punctuation/article or curated alias`);
+  } else if (!match && typed.length) {
+    record.warnings.push(`ambiguous or different title for "${query}": no unique verified name match; candidates: ${typed.map((e) => e.name).join(", ")}`);
   }
   return { entity: match, record };
 }
@@ -201,7 +209,24 @@ export function isFiniteNumber(v: unknown): v is number {
 
 /** Case, spacing and punctuation-insensitive key for comparing a search query with a result name. */
 function nameKey(s: string): string {
-  return s.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return s.toLowerCase().normalize("NFKD").replace(/(\p{Script=Latin})\p{M}+/gu, "$1").normalize("NFC").replace(/[’']/g, "")
+    .replace(/&/g, " and ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/** Editorial title aliases, not fuzzy guesses. Kept type-specific to avoid crossing adaptations. */
+function canonicalName(name: string, kind: ComparableKind): string {
+  const key = nameKey(name).replace(/^the /, "");
+  const aliases: Partial<Record<ComparableKind, Record<string, string>>> = {
+    book: { "travelling cat chronicles": "traveling cat chronicles" },
+    movie: { "tonari no totoro": "my neighbor totoro", "majo no takkyubin": "kikis delivery service" },
+    tv_show: { "shinya shokudo tokyo stories": "midnight diner tokyo stories" },
+  };
+  return aliases[kind]?.[key] ?? key;
+}
+
+/** Same deliberately limited identity rule for both initial lookup and rephrased lookup. */
+export function sameEntityName(a: string, b: string, kind: ComparableKind): boolean {
+  return canonicalName(a, kind) === canonicalName(b, kind);
 }
 
 function round(n: number): number {

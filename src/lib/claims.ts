@@ -47,7 +47,7 @@ export interface CheckResult {
 }
 
 /** Standalone numbers only: digits inside identifiers such as "55_and_older" or "c4-1a2b3c" are ignored. */
-const NUMBER_RE = /(?<![\w.])-?\d+(?:\.\d+)?%?(?![\w])/g;
+const NUMBER_RE = /(?<![\w.])-?(?:\d+(?:\.\d+)?|\.\d+)%?(?![\w])/g;
 
 function normalizeNumber(s: string): number | null {
   const pct = s.endsWith("%");
@@ -71,14 +71,41 @@ function evidenceNumbers(evidence: Evidence[]): number[] {
 }
 
 function numberIsBacked(n: number, backing: number[]): boolean {
-  // Accept the same value, or the same value shown as a percentage / rounded.
-  return backing.some(
-    (b) =>
-      Math.abs(b - n) < 1e-6 ||
-      Math.abs(b * 100 - n) < 0.51 ||
-      Math.abs(b - n) < 0.0051 ||
-      Math.abs(b - n * 100) < 0.51,
-  );
+  // Percentage tokens are normalized by the parser. Never reinterpret an unmarked number as
+  // 100 times another metric. Permit only exact values or normal two-decimal display rounding.
+  return backing.some((b) => Math.abs(b - n) < 1e-6 || Math.abs(Math.round(b * 100) / 100 - n) < 1e-6);
+}
+
+/** Qloo taste indices are not purchase probabilities or percentages of people. */
+const SALES_FACT = /\b(purchase\s+(?:intent|probability|likelihood|rate)|conversion\s+rate|sales\s+(?:rate|probability)|(?:will|likely to|guaranteed to)\s+(?:buy|purchase|sell)|(?:buyers?|customers?|people)\s+(?:buy|purchase|convert)|majority|(?:mostly|predominantly)\s+(?:women|men|female|male)|most\s+(?:buyers?|customers?|people|fans?|readers?))\b/i;
+const METRICS: { words: RegExp; field: RegExp }[] = [
+  { words: /\bage(?=\b|_)/i, field: /^age\./ },
+  { words: /\b(?:female|women|woman)\b/i, field: /^gender\.female$/ },
+  { words: /\b(?:male|men|man)\b/i, field: /^gender\.male$/ },
+  { words: /\bgender\b/i, field: /^gender\./ },
+  { words: /\b(?:velocity|trend)\b/i, field: /velocity$/ },
+  { words: /\b(?:regional|region|state)\b/i, field: /^heatmap\./ },
+  { words: /\baffinity\b/i, field: /(?:affinity$|^heatmap\.)/ },
+];
+
+function metricProblem(text: string, evidence: RegistryItem[]): string | null {
+  // A title such as "Age of Empires" is a subject, not an assertion about age.
+  for (const e of evidence) {
+    if (e.subject) text = text.split(new RegExp(e.subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")).join(" ");
+  }
+  if (SALES_FACT.test(text)) return "taste evidence does not measure buyer proportions, sales or purchase intent";
+  if (/%|\bpercent(?:age)?\b/i.test(text) && !evidence.some((e) => /population_percentile$/.test(e.field))) {
+    return "taste indices and demographic skews are not percentages of buyers";
+  }
+  // Check each sentence against the kind of evidence it names, as well as its subject and value.
+  for (const sentence of text.split(/(?<=[.!?])\s+(?=[A-Z])/)) {
+    for (const metric of METRICS) {
+      if (metric.words.test(sentence) && !evidence.some((e) => metric.field.test(e.field))) {
+        return "the stated metric is not present in the cited evidence";
+      }
+    }
+  }
+  return null;
 }
 
 /** An evidence item the server recorded itself (see buildEvidence). Claims may only cite these. */
@@ -113,19 +140,29 @@ function unbackedPairs(rawText: string, matched: RegistryItem[]): number[] {
     const s = squeezeSpaces(sub).trim();
     for (const p of positions(text, s)) spans.push({ start: p, end: p + s.length, subject: sub });
   }
-  const free = evidenceNumbers(matched.filter((m) => !m.subject));
-  const bySubject = new Map(named.map((sub) => [sub, evidenceNumbers(matched.filter((m) => m.subject === sub))]));
+  const metricSpans = METRICS.flatMap((metric) => [...text.matchAll(new RegExp(metric.words.source, "gi"))]
+    .filter((m) => !spans.some((s) => (m.index ?? 0) >= s.start && (m.index ?? 0) < s.end))
+    .map((m) => ({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, field: metric.field })));
+  const boundaries = [...text.matchAll(/[;!?]\s*|\.\s+(?=[A-Z])|\band\b|\n/g)]
+    .map((m) => m.index ?? 0).filter((p) => !spans.some((s) => p >= s.start && p < s.end));
   const bad: number[] = [];
   for (const m of text.matchAll(NUMBER_RE)) {
     const at = m.index ?? 0;
     if (spans.some((sp) => at >= sp.start && at < sp.end)) continue;
     const n = normalizeNumber(m[0]);
     if (n === null) continue;
+    const left = boundaries.filter((p) => p < at).at(-1) ?? -1;
+    const right = boundaries.find((p) => p > at) ?? text.length;
+    const nearby = metricSpans.filter((m) => m.start > left && m.end <= right);
+    const metric = nearby.filter((m) => m.end <= at).sort((a, b) => b.end - a.end)[0]
+      ?? nearby.filter((m) => m.start > at).sort((a, b) => a.start - b.start)[0];
+    const eligible = metric ? matched.filter((e) => metric.field.test(e.field)) : matched;
+    const free = evidenceNumbers(eligible.filter((e) => !e.subject));
     if (numberIsBacked(n, free)) continue;
     const before = spans.filter((sp) => sp.end <= at).sort((x, y) => y.end - x.end)[0];
     const after = spans.filter((sp) => sp.start > at).sort((x, y) => x.start - y.start)[0];
     const owner = (before ?? after)?.subject;
-    const backing = owner ? bySubject.get(owner) ?? [] : evidenceNumbers(matched);
+    const backing = evidenceNumbers(owner ? eligible.filter((e) => e.subject === owner) : eligible);
     if (!numberIsBacked(n, backing)) bad.push(n);
   }
   return bad;
@@ -164,6 +201,11 @@ export function checkClaims(claims: Claim[], registry: RegistryItem[]): CheckRes
       const matched = claim.evidence
         .map((e) => registry.find((r) => sameEvidence(r, e)))
         .filter((r): r is RegistryItem => !!r);
+      const problem = metricProblem(claim.text, matched);
+      if (problem) {
+        result.dropped.push({ claim, reason: problem });
+        continue;
+      }
       if (matched.length === 0) {
         // A downgraded claim is shown as an interpretation, and interpretations may not carry numbers.
         if (nums.length > 0) {
@@ -225,8 +267,8 @@ export interface ListingCheck {
 
 /**
  * Checks the grounded listing body, not only the claims:
- * - a sentence that states a measurement (a percentage, a decimal, or stat words) must use only
- *   numbers that are in the registry; otherwise the sentence is removed;
+ * - audience statistics belong in the cited analysis, never in the customer-facing listing;
+ *   a matching number from an unrelated metric cannot license them;
  * - tags are trimmed, de-duplicated and cut to the marketplace limits (Etsy: 13 tags of at most
  *   20 characters; KDP: 7 keywords of at most 50 characters).
  */
@@ -240,27 +282,28 @@ export function checkListing(
   fallbackTitle?: string,
 ): ListingCheck {
   const notes: string[] = [];
-  const backing = [...evidenceNumbers(registry), ...allowed];
-  const looksMeasured = (s: string) => /\d+(?:\.\d+)?%|\b\d*\.\d+\b/.test(s) || STAT_WORDS.test(s) || AUDIENCE_FACT.test(s);
-  const unbacked = (s: string) =>
-    (s.match(NUMBER_RE) ?? [])
-      .map(normalizeNumber)
-      .filter((n): n is number => n !== null)
-      .filter((n) => !numberIsBacked(n, backing));
-  // A measured-looking text passes only if it has numbers, all of them are in the evidence, and it is
-  // not an audience fact resting on a word like "most" rather than on a number.
-  const wordAudienceFact = (s: string) => AUDIENCE_FACT.test(s.replace(/\d[\d,.]*%?/g, "#"));
-  const passes = (s: string) => !looksMeasured(s) || (/\d/.test(s) && unbacked(s).length === 0 && !wordAudienceFact(s));
-  const why = (s: string) =>
-    unbacked(s).length > 0
-      ? `number(s) not in evidence: ${unbacked(s).join(", ")}`
-      : "states a measurement or an audience fact with no number from the evidence";
+  // Keep the registry argument for API compatibility; even a real audience statistic must not be
+  // turned into listing copy. Ordinary specs (Vol. 1, 8.5 x 11, $4.99) are not audience statistics.
+  void registry;
+  const makerNumbers = [...allowed, ...evidenceNumbers([{ callId: "input", field: "input", value: fallbackTitle ?? "" }])];
+  const passes = (s: string) => {
+    if (STAT_WORDS.test(s) || AUDIENCE_FACT.test(s) || SALES_FACT.test(s)) return false;
+    // Currency amounts are prices, not arbitrary product dimensions. Only the explicitly supplied
+    // maker price may be repeated, regardless of what numbers happen to appear in Qloo evidence.
+    const prices = [...s.matchAll(/\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)|\bUSD\s*(\d+(?:,\d{3})*(?:\.\d+)?)|(\d+(?:,\d{3})*(?:\.\d+)?)\s*USD\b/gi)]
+      .map((m) => Number((m[1] ?? m[2] ?? m[3]).replace(/,/g, "")));
+    if (prices.some((price) => !numberIsBacked(price, allowed))) return false;
+    // A maker-supplied material percentage may stay; a random taste index cannot back it.
+    const percentages = [...s.matchAll(/\d+(?:\.\d+)?%/g)].map((m) => normalizeNumber(m[0])!);
+    return percentages.every((n) => numberIsBacked(n, makerNumbers));
+  };
+  const why = () => "audience statistics and sales assertions belong in the evidence analysis; currency prices must match the maker's supplied price";
   const gate = (where: string, text: string) =>
     text
       .split(/(?<=[.!?])\s+/)
       .filter((s) => {
         if (passes(s)) return true;
-        notes.push(`listing: removed from ${where} "${s.trim()}" — ${why(s)}`);
+        notes.push(`listing: removed from ${where} "${s.trim()}" — ${why()}`);
         return false;
       })
       .join(" ")
@@ -271,8 +314,9 @@ export function checkListing(
 
   let title = listing.title.trim();
   if (!passes(title)) {
-    const replacement = (fallbackTitle ?? "").trim();
-    notes.push(`listing: title "${title}" ${why(title)}; replaced with ${replacement ? `"${replacement}"` : "an empty title"}`);
+    const fallback = (fallbackTitle ?? "").trim();
+    const replacement = passes(fallback) ? fallback : "";
+    notes.push(`listing: title "${title}" ${why()}; replaced with ${replacement ? `"${replacement}"` : "an empty title"}`);
     title = replacement;
   }
 
@@ -283,6 +327,10 @@ export function checkListing(
   for (const raw of listing.tags) {
     const t = raw.trim().replace(/\s+/g, " ");
     if (!t) continue;
+    if (!passes(t)) {
+      notes.push(`listing: dropped tag "${t}" — ${why()}`);
+      continue;
+    }
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

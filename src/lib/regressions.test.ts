@@ -503,7 +503,7 @@ test("a numbered title written with different spacing is the same subject, not a
   const wrong = checkClaims([{ id: "w", text: "Atomic Habits Vol. 2 has affinity 0.9.", kind: "qloo", evidence: [ev] }], registry);
   assert.equal(wrong.dropped.length, 1);
   const ident = checkClaims([{ id: "i", text: "Atomic Habits Vol. 2 skews to age_55_and_older at 0.81.", kind: "qloo", evidence: [ev] }], registry);
-  assert.equal(ident.kept.length, 1, JSON.stringify(ident.dropped));
+  assert.equal(ident.dropped.length, 1, "an affinity receipt cannot support an age-skew assertion");
 });
 
 /** Runs fn on the live Qloo path with a fake fetch that answers raw text (no network). */
@@ -548,8 +548,8 @@ test("search takes the result whose name is the query and flags a different titl
     () => JSON.stringify({ results: [{ entity_id: "SYN-9", name: "Another Synthetic Title", types: ["urn:entity:book"] }] }),
     () => searchEntity("Synthetic Saga", "book", 2),
   );
-  assert.equal(other.entity?.entity_id, "SYN-9");
-  assert.ok(other.record.warnings.some((w) => w.startsWith('name differs for "Synthetic Saga"')), JSON.stringify(other.record));
+  assert.equal(other.entity, null);
+  assert.ok(other.record.warnings.some((w) => w.startsWith('ambiguous or different title for "Synthetic Saga"')), JSON.stringify(other.record));
 });
 
 test("a model answer with no usable comparable falls back to the offline list instead of an empty success (N11)", async () => {

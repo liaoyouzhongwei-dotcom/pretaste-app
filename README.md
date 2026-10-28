@@ -2,9 +2,11 @@
 
 **Your agent guessed. Qloo checked.**
 
-Pretaste lets an LLM-only agent guess who will buy a product idea (age, gender, life stage,
-aesthetic, what else they like, trend, region), then checks each guess against Qloo's taste data
-and rewrites the listing with a receipt (the recorded Qloo call) for every Qloo-based claim.
+Pretaste helps makers challenge the audience assumptions behind a product idea before making it.
+An agent drafts up to three ideas and their cultural comparables, checks the assumptions against
+Qloo's taste data, and produces a next experiment and a revised draft with traceable evidence.
+Taste affinity and demographic skew are relative signals about comparable audiences, **not sales
+forecasts, buyer counts, conversion rates, or proof of demand**.
 
 ## Run
 
@@ -41,6 +43,9 @@ Enable the pre-commit guard once per clone:
 git config core.hooksPath .githooks
 ```
 
+For isolated local checkouts with linked dependencies outside the project, set
+`PRETASTE_WORKSPACE_ROOT` to the smallest common parent. Normal installs do not need it.
+
 ## Environment variables
 
 Put these in `.env.local` (git-ignored). Never commit keys.
@@ -70,13 +75,30 @@ Pretaste runs end to end with no keys at all.
 
 ## Screens
 
-1. **Verdicts** — the agent's seven guesses about the buyer, each marked supported / refuted / can't be checked, with the Qloo call behind it.
-2. **Blind vs Grounded** — the LLM-only listing next to the Qloo-grounded one. "Qloo off" shows what would ship without taste data.
-3. **What to make** — the ideas ranked by a fixed formula (affinity, trend, found, overlap), with "don't make (yet)" when the evidence is missing.
-4. **Who they are** — what these buyers also like, age and gender skew, top US regions, and the cover direction (marked as interpretation).
-5. **Receipts** — every claim linked to the recorded call, the claim checker's result, the agent's own decisions, and the call log with redacted params.
+1. **Assumptions** — checkable findings first; assumptions the data cannot establish remain visibly separate.
+2. **Before & after** — drafts for the same product, with a "Qloo off" comparison and the claims behind the rewrite.
+3. **Ideas ranked** — research priority from a fixed formula (affinity, trend, found, overlap), with coverage and the calculation available to inspect. This is not a probability of success.
+4. **Audience** — cultural neighbours, relative age and gender skew, approximate US regional affinity, and creative direction labelled as interpretation. These are signals from the comparables, not measured customers of the proposed product.
+5. **Evidence** — links open the matching recorded call, with claim checks, agent decisions and technical details available on demand.
 
-Each listing has a copy button, and the whole run can be saved as Markdown.
+Each listing has a copy button, and the whole run can be saved as Markdown. Runs show elapsed
+time and actual pipeline progress, can be cancelled, and can be restarted after an interruption.
+Keyboard navigation, labelled fields and mobile layouts are supported.
+
+## Evidence safeguards
+
+- Search rejects unrelated titles, ambiguous identities and unverified rephrases. Conservative
+  title normalization and a small, explicit alias list do not silently substitute another work.
+- Numeric claims must match the cited subject and metric. Affinity cannot become a purchase
+  percentage; female and male signals cannot be exchanged. Unsupported measurements are removed.
+- A partial failure in the comparison data holds all recommendations rather than ranking ideas
+  on unequal coverage. Available signals remain inspectable, and failed calls are recorded.
+- Product specifications are distinct from audience measurements. Price claims must match the
+  maker's input; cultural data cannot validate a price or guarantee product demand.
+
+Life stage and aesthetic assumptions are not validated by the current implementation. Regional
+labels use an approximate US map. Validate the product, creative direction and price with real
+customers before investing in production.
 
 ## Access
 
