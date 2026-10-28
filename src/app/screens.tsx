@@ -68,6 +68,22 @@ const NOTICE_STYLE = { synthetic: "border border-amber-400 bg-amber-50 text-ambe
 export function Notice({ tone, label, children }: { tone: keyof typeof NOTICE_STYLE; label: string; children: ReactNode }) {
   return <div role={tone === "error" ? "alert" : "status"} className={`break-words rounded-xl px-4 py-3 text-sm leading-relaxed ${NOTICE_STYLE[tone]}`}><span className="font-semibold">{label}.</span> {children}</div>;
 }
+/** One plain sentence a first-time visitor can read: what was guessed, what the signal said instead. */
+export function plainWhy(v: AssumptionVerdict): string {
+  const guessed = readable(v.assumed);
+  const ev = v.claims.flatMap(c => c.evidence);
+  if (v.field === "age") {
+    const top = ev.filter(e => e.field.startsWith("age.") && typeof e.value === "number").sort((a, b) => (b.value as number) - (a.value as number))[0];
+    const band = top ? readable(top.field.slice(4)) : null;
+    if (band && !guessed.includes(band)) return `You guessed ${guessed}. Qloo's comparable audience leans away from those ages; its strongest age group is ${band}.`;
+    return `You guessed ${guessed}. Qloo's comparable audience leans away from those ages.`;
+  }
+  if (v.field === "gender") {
+    const f = ev.find(e => e.field === "gender.female")?.value;
+    if (typeof f === "number") return `You guessed ${v.assumed === "neutral" ? "no gender lean" : `mostly ${guessed === "female" ? "women" : guessed === "male" ? "men" : guessed}`}. Qloo's comparable audience leans toward ${f < 0 ? "men" : "women"}.`;
+  }
+  return `${ASSUMPTION_LABELS[v.field]}: guessed ${guessed}. ${readable(v.reason)}`;
+}
 export function changeSummary(run: RunState) {
   const before = run.blindListing, after = run.groundedListing;
   if (!before || !after) return null;
@@ -75,7 +91,7 @@ export function changeSummary(run: RunState) {
   const refuted = verdicts.filter(v => v.verdict === "refuted");
   const receipts = (run.groundedClaims ?? []).filter(c => c.kind === "qloo" && c.evidence.length).length;
   const rank = run.ranking?.find(r => r.idea === run.focusIdea);
-  const why = refuted.length ? refuted.slice(0, 2).map(v => `${ASSUMPTION_LABELS[v.field]}: guessed ${readable(v.assumed)}. ${readable(v.reason)}`) : [`No guess was challenged by the available signal. ${verdicts.filter(v => v.verdict === "unverifiable").length} assumptions remain unestablished. The rewrite cites ${receipts} recorded Qloo ${receipts === 1 ? "claim" : "claims"}.`];
+  const why = refuted.length ? refuted.slice(0, 2).map(plainWhy) : [`No guess was challenged by the available signal. ${verdicts.filter(v => v.verdict === "unverifiable").length} assumptions remain unestablished. The rewrite cites ${receipts} recorded Qloo ${receipts === 1 ? "claim" : "claims"}.`];
   return { before, after, why, more: Math.max(0, refuted.length - 2), call: rank?.call ? `${CALL_LABELS[rank.call]}: ${readable(rank.callReason ?? "")}` : null, noModel: run.sources[0] === "rules", hasEvidence: receipts > 0 };
 }
 export function ChangeSummary({ run }: { run: RunState }) {
