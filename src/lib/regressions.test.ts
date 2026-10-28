@@ -1,5 +1,6 @@
 /** Offline regressions. All values here are synthetic, never recorded Qloo responses. */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, mock, test } from "node:test";
 import { SCENARIOS } from "../fixtures/scenarios";
 import * as clock from "./date";
@@ -458,6 +459,83 @@ test("re-sending the same step of a run returns the saved answer without running
   await once(stepKey("abc", 3), compute, late);
   assert.equal(runs, 4, "a saved answer expires with the run");
   resetReplayCache();
+});
+
+test("start attempts deduplicate resends but a fresh UUID escapes a saved failed run", async () => {
+  const { once, resetReplayCache, startKey } = await import("./replay-cache");
+  resetReplayCache();
+  const body = JSON.stringify({ scenarioId: "comedian-merch" });
+  const firstId = randomUUID();
+  const nextId = randomUUID();
+  let computes = 0;
+  const compute = async () => {
+    computes++;
+    const run = state();
+    run.errors.push({ step: 2, message: "Synthetic upstream failure" });
+    return { stateText: serializeState(run), token: "synthetic" };
+  };
+  try {
+    const [first, resend] = await Promise.all([
+      once(startKey(body, firstId), compute), once(startKey(body, firstId), compute),
+    ]);
+    assert.equal(computes, 1);
+    assert.deepEqual(first.answer, resend.answer);
+    assert.equal(resend.replayed, true);
+    const fresh = await once(startKey(body, nextId), compute);
+    assert.equal(computes, 2);
+    assert.notEqual(JSON.parse(first.answer.stateText).runId, JSON.parse(fresh.answer.stateText).runId);
+    assert.equal(fresh.replayed, false);
+    await once(startKey(JSON.stringify({ scenarioId: "family-binder" }), firstId), compute);
+    assert.equal(computes, 3, "different bodies do not collide even with the same UUID");
+    const legacy = await once(startKey(body), compute);
+    const legacyResend = await once(startKey(body), compute);
+    assert.equal(computes, 4, "callers without a UUID keep same-body deduplication");
+    assert.deepEqual(legacy.answer, legacyResend.answer);
+  } finally {
+    resetReplayCache();
+  }
+});
+
+test("pipeline start accepts attempt UUIDs, rejects malformed keys and preserves signed step ordering", async () => {
+  const { POST } = await import("../app/api/pipeline/[step]/route");
+  const { resetReplayCache } = await import("./replay-cache");
+  resetReplayCache();
+  const body = { input: { ideas: ["Synthetic paper notebook"], marketplace: "etsy" } };
+  const key = randomUUID();
+  const post = (step: number, value: unknown, attempt?: string) => POST(new Request(`http://localhost/api/pipeline/${step}`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...(attempt === undefined ? {} : { "Idempotency-Key": attempt }) },
+    body: JSON.stringify(value),
+  }), { params: Promise.resolve({ step: String(step) }) });
+  try {
+    for (const invalid of ["", "not-a-uuid", "a".repeat(200)]) {
+      // An unknown scenario would otherwise return 404: key validation runs first.
+      const response = await post(0, { scenarioId: "unknown-synthetic" }, invalid);
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).error, /Idempotency-Key/);
+    }
+    const firstResponse = await post(0, body, key);
+    assert.equal(firstResponse.status, 200);
+    assert.equal(firstResponse.headers.get("x-pretaste-replayed"), "0");
+    const first = await firstResponse.json();
+    const repeated = await post(0, body, key);
+    assert.equal(repeated.headers.get("x-pretaste-replayed"), "1");
+    assert.deepEqual(await repeated.json(), first);
+    const fresh = await (await post(0, body, randomUUID())).json();
+    assert.notEqual(JSON.parse(fresh.stateText).runId, JSON.parse(first.stateText).runId);
+    const anotherBody = await (await post(0, { input: { ...body.input, ideas: ["Another synthetic notebook"] } }, key)).json();
+    assert.notEqual(JSON.parse(anotherBody.stateText).runId, JSON.parse(first.stateText).runId);
+    const legacy = await (await post(0, body)).json();
+    assert.deepEqual(await (await post(0, body)).json(), legacy);
+    assert.equal((await post(2, first)).status, 409, "a UUID cannot bypass step order");
+    const changed = JSON.parse(first.stateText);
+    changed.input.ideas[0] = "Tampered synthetic idea";
+    assert.equal((await post(1, { stateText: serializeState(changed), token: first.token })).status, 409);
+    const next = await post(1, first);
+    assert.equal(next.status, 200, "the original signed next step is still accepted");
+    assert.equal((await post(1, first)).headers.get("x-pretaste-replayed"), "1");
+  } finally {
+    resetReplayCache();
+  }
 });
 
 test("a custom idea without the model keeps the maker's words, guesses no audience and looks up only quoted titles", async () => {

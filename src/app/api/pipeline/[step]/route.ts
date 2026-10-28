@@ -40,7 +40,14 @@ export async function POST(req: Request, ctx: RouteContext<"/api/pipeline/[step]
   }
 
   let state: RunState;
+  let attemptId: string | undefined;
   if (step === 0) {
+    const header = req.headers.get("Idempotency-Key");
+    if (header !== null) {
+      const parsedKey = z.uuid().safeParse(header);
+      if (!parsedKey.success) return bad("Idempotency-Key must be a UUID");
+      attemptId = parsedKey.data;
+    }
     const parsed = StartSchema.safeParse(body);
     if (!parsed.success) return bad("send { scenarioId } or { input }");
     if ("scenarioId" in parsed.data) {
@@ -62,7 +69,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/pipeline/[step]
   }
 
   // The same step of the same run, sent again, gets the saved answer: no second Qloo or LLM call.
-  const key = step === 0 ? startKey(text) : stepKey(state.runId, step);
+  const key = step === 0 ? startKey(text, attemptId) : stepKey(state.runId, step);
   try {
     const { answer, replayed } = await once(key, async () => {
       const next = await runStep(step, state);

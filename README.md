@@ -8,6 +8,8 @@ Qloo's taste data, and produces a next experiment and a revised draft with trace
 Taste affinity and demographic skew are relative signals about comparable audiences, **not sales
 forecasts, buyer counts, conversion rates, or proof of demand**.
 
+![Pretaste home screen](docs/pretaste-preview.png)
+
 ## Run
 
 Requires Node.js 20+.
@@ -84,6 +86,14 @@ Pretaste runs end to end with no keys at all.
 Each listing has a copy button, and the whole run can be saved as Markdown. Runs show elapsed
 time and actual pipeline progress, can be cancelled, and can be restarted after an interruption.
 Keyboard navigation, labelled fields and mobile layouts are supported.
+
+Each page start (including **Try again**) and CLI run sends a fresh UUID in the step-0
+`Idempotency-Key` header. Re-sending the same exact body with that UUID reuses its saved answer
+for 10 minutes; a new UUID starts a fresh run, including after an earlier run recorded failures.
+API callers may omit the header for the legacy same-body replay behavior; malformed UUIDs are
+rejected before any model or Qloo calls. Later steps still require the signed state in order.
+Replay deduplication is bounded, in-memory and per server instance, so it is not a cross-instance
+or durable exactly-once guarantee. A new UUID avoids matching an earlier attempt on any instance.
 
 ## Evidence safeguards
 

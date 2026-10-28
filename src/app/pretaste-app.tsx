@@ -22,8 +22,8 @@ const SCENARIOS: Record<string, { title: string; description: string; category: 
 };
 
 /** Preserve the exact state text signed by the server. */
-async function postStep(step: number, body: unknown, signal: AbortSignal) {
-  const res = await fetch(`/api/pipeline/${step}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+async function postStep(step: number, body: unknown, signal: AbortSignal, attemptId?: string) {
+  const res = await fetch(`/api/pipeline/${step}`, { method: "POST", headers: { "Content-Type": "application/json", ...(attemptId ? { "Idempotency-Key": attemptId } : {}) }, body: JSON.stringify(body), signal });
   const json = await res.json().catch(() => ({})) as { stateText?: string; token?: string; error?: string };
   if (!res.ok || !json.stateText || !json.token) throw new Error(json.error ?? `The check stopped at step ${step + 1}. Please try again.`);
   return { stateText: json.stateText, token: json.token, state: JSON.parse(json.stateText) as RunState };
@@ -93,7 +93,8 @@ export default function PretasteApp() {
     setLastBody(body); setFatal(null); setCancelled(false); setRun(null); setQlooOff(false); setElapsed(0); setStep(0); setTab("verdicts");
     requestAnimationFrame(() => progress.current?.scrollIntoView({ block: "center", behavior: "smooth" }));
     try {
-      let signed = await postStep(0, body, abort.signal);
+      const attemptId = crypto.randomUUID();
+      let signed = await postStep(0, body, abort.signal, attemptId);
       if (id !== requestId.current) return;
       setRun(signed.state);
       for (let i = 1; i < STEPS.length; i++) {

@@ -3,8 +3,9 @@
  * (and its Qloo and LLM calls) again. Concurrent duplicates share one execution. Empty results are
  * saved like any other success; errors are not saved, so a failed step can be tried again.
  *
- * Step 0 has no run yet, so it is keyed by the exact request body for a short window: the same
- * start request sent twice gets the same run.
+ * Step 0 is keyed by the exact body and optional start-attempt UUID for a short window.
+ * Re-sending one attempt gets the same run; a new attempt gets a fresh run even after failures.
+ * Legacy callers without a UUID continue to share a run for the same exact body.
  *
  * Kept in this server instance's memory only (serverless instances each keep their own), bounded
  * by entry count and total size, and dropped after the run's lifetime.
@@ -53,9 +54,9 @@ export function stepKey(runId: string, step: number): string {
   return `run:${runId}:${step}`;
 }
 
-/** Key for step 0: the exact start request. */
-export function startKey(bodyText: string): string {
-  return `start:${createHash("sha256").update(bodyText).digest("base64url")}`;
+/** Key for step 0: the exact start request and optional client attempt identifier. */
+export function startKey(bodyText: string, attemptId?: string): string {
+  return `start:${createHash("sha256").update(JSON.stringify([bodyText, attemptId ?? null])).digest("base64url")}`;
 }
 
 export function ttlFor(key: string): number {

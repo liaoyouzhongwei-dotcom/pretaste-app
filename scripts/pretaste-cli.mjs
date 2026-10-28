@@ -13,15 +13,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
 
 const STEP_TIMEOUT_MS = 180_000;
 
-async function post(base, step, body) {
+async function post(base, step, body, attemptId) {
   const started = Date.now();
   try {
     const r = await fetch(`${base}/api/pipeline/${step}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(attemptId ? { "Idempotency-Key": attemptId } : {}) },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(STEP_TIMEOUT_MS),
     });
@@ -44,7 +45,8 @@ async function post(base, step, body) {
  */
 export async function runPipeline(base, body, { onStep } = {}) {
   const stepMs = [];
-  let s = await post(base, 0, body);
+  const attemptId = randomUUID();
+  let s = await post(base, 0, body, attemptId);
   stepMs.push(s.ms);
   if (s.status !== 200 || !s.j?.stateText) return { ok: false, fail: `step0 ${s.status} ${s.t.slice(0, 300)}`, stepMs };
   onStep?.(0, s.ms);
