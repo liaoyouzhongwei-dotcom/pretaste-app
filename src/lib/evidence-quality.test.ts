@@ -89,6 +89,20 @@ test("search accepts punctuation, article and documented aliases but rejects seq
   assert.equal((await search("Synthetic Twins", ["Synthetic Twins", "Synthetic Twins"])).entity, null);
 });
 
+test("search accepts the first book of a labelled series and a non-sequel subtitle, nothing wider", async () => {
+  const series = await search("Synthetic Kettle", ["Synthetic Kettle (Synthetic Kettle, #1)", "Synthetic Kettle (Synthetic Kettle #1)", "Tales of the Kettle (Synthetic Kettle, #2)"]);
+  assert.equal(series.entity?.entity_id, "SYN-0");
+  assert.ok(series.record.warnings.some((w) => w.includes("verified first book of a series") && w.includes("1 more record")));
+  assert.equal((await search("Synthetic Spoon", ["Synthetic Spoon, Vol. 2 (Synthetic Spoon, #2)"])).entity, null);
+  assert.equal((await search("Synthetic Ladle", ["Synthetic Ladle (Synthetic Ladle, #1-4)"])).entity, null);
+  const sub = await search("Synthetic Blade", ["Synthetic Blade: Kimetsu Synthetic", "Synthetic Blade Runner"], "movie");
+  assert.equal(sub.entity?.entity_id, "SYN-0");
+  assert.ok(sub.record.warnings.some((w) => w.includes("verified title with subtitle")));
+  for (const [i, tail] of ["The Movie", "Season 2", "Mirror Arc", "Part II"].entries())
+    assert.equal((await search(`Synthetic Sword ${i}`, [`Synthetic Sword ${i}: ${tail}`], "movie")).entity, null, tail);
+  assert.equal((await search("Synthetic Shield", ["Synthetic Shield: Alpha", "Synthetic Shield: Beta"], "movie")).entity, null, "two subtitles stay ambiguous");
+});
+
 test("an interrupted comparative signal holds every idea instead of penalizing the later query", () => {
   const state = newRun({ ideas: ["Synthetic notebook", "Synthetic journal"], marketplace: "etsy" }, null);
   state.resolved = [0, 1].map((idea) => ({ idea, name: `Synthetic comparable ${idea}`, kind: "book" as const,

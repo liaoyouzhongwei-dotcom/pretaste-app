@@ -390,7 +390,26 @@ export function rankIdeas(state: RunState): IdeaScore[] {
   }
   // Ideas with no taste signal have no comparable score: they go after every scored idea.
   out.sort((a, b) => Number(!!a.unranked) - Number(!!b.unranked) || b.score - a.score);
+  const scored = out.filter((s) => !s.unranked && !s.onHold);
+  if (scored.length >= 2 && scored[0] === out[0]) out[0] = { ...out[0], robust: weightCheck(scored, noTrend) };
   return assignCalls(state, out);
+}
+
+/** Moves each weight up and down by 0.1 and counts the weightings that keep the same idea first. */
+export function weightCheck(scored: IdeaScore[], noTrend: boolean): { held: number; of: number } {
+  const base = { affinity: 0.4, trend: 0.3, found: 0.3, overlap: 0.2 };
+  const keys = (noTrend ? ["affinity", "found", "overlap"] : ["affinity", "trend", "found", "overlap"]) as (keyof typeof base)[];
+  const score = (p: IdeaScore["parts"], w: typeof base) => noTrend
+    ? (w.affinity * p.affinity + w.found * p.found) / (w.affinity + w.found) - w.overlap * p.overlap
+    : w.affinity * p.affinity + w.trend * p.trend + w.found * p.found - w.overlap * p.overlap;
+  let held = 0, of = 0;
+  for (const k of keys) for (const d of [-0.1, 0.1]) {
+    const w = { ...base, [k]: r2(base[k] + d) };
+    of++;
+    const top = scored.reduce((best, s) => (score(s.parts, w) > score(best.parts, w) ? s : best));
+    if (top.idea === scored[0].idea) held++;
+  }
+  return { held, of };
 }
 
 // Words that name a format or a version, not what the product is about.

@@ -220,7 +220,8 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
             .map((e) => ({
               entityId: e.entity_id!,
               name: e.name!,
-              kind: e.type ?? e.types?.[0] ?? "",
+              // Live results say only "urn:entity"; the kind asked for is the reliable one.
+              kind: e.types?.find((t) => t.split(":").length > 2) ?? neighbourType(state.input),
               affinity: e.query?.affinity ?? 0,
               drivenBy: (e.query?.explainability?.["signal.interests.entities"] ?? [])
                 .map((x) => nameById.get(x.entity_id ?? "") ?? null)

@@ -87,7 +87,7 @@ Pretaste runs end to end with no keys at all.
 
 1. **Assumptions** — checkable findings first; assumptions the data cannot establish remain visibly separate.
 2. **Before & after** — drafts for the same product, with a "Qloo off" comparison and the claims behind the rewrite.
-3. **Ideas ranked** — research priority from a fixed formula (affinity, trend, found, overlap), with coverage and the calculation available to inspect. This is not a probability of success.
+3. **Ideas ranked** — research priority from a fixed formula (affinity, trend, found, overlap), with coverage and the calculation available to inspect. The first card says in how many nearby weightings (each weight moved by 0.1) it stays first. This is not a probability of success.
 4. **Audience** — cultural neighbours, relative age and gender skew, approximate US regional affinity, and creative direction labelled as interpretation. These are signals from the comparables, not measured customers of the proposed product.
 5. **Evidence** — links open the matching recorded call, with claim checks, agent decisions and technical details available on demand.
 
@@ -107,6 +107,9 @@ or durable exactly-once guarantee. A new UUID avoids matching an earlier attempt
 
 - Search rejects unrelated titles, ambiguous identities and unverified rephrases. Conservative
   title normalization and a small, explicit alias list do not silently substitute another work.
+  Two narrow forms also count as the same title, each with a warning on the call: the first book of a
+  labelled series ("Title (Series, #1)") and a title with a subtitle that has no sequel marker
+  ("Title: Subtitle"; seasons, parts, volumes, arcs and films are refused).
   Search text is limited to 100 UTF-16 code units after an observed API validation rejection; returned titles are still checked against the complete original title.
 - Numeric claims must match the cited subject and metric. Affinity cannot become a purchase
   percentage; female and male signals cannot be exchanged. Unsupported measurements are removed.

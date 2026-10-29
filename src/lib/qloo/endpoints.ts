@@ -58,10 +58,21 @@ export async function searchEntity(
   const aliases = typed.filter((e) => sameEntityName(e.name!, query, kind));
   // A prefix is not an identity: a sequel, another volume or an unrelated first hit must not
   // silently become the audience for this idea. Only normalization and explicit aliases qualify.
-  const candidates = exact.length ? exact : aliases;
+  // Two narrower forms are also the same work: the first book of a series that carries its series
+  // label ("Title (Series, #1)"), and a title plus a subtitle with no sequel marker ("Title: Subtitle").
+  const seriesFirst = typed.filter((e) => { const t = firstOfSeries(e.name!); return t !== null && sameEntityName(t, query, kind); });
+  const subtitled = typed.filter((e) => { const t = withSubtitle(e.name!); return t !== null && sameEntityName(t, query, kind); });
+  const tier = exact.length ? "exact" : aliases.length ? "alias" : seriesFirst.length ? "series" : "subtitle";
+  const candidates = exact.length ? exact : aliases.length ? aliases : seriesFirst.length ? seriesFirst : subtitled;
   const unique = [...new Map(candidates.map((e) => [e.entity_id, e])).values()];
-  const match = unique.length === 1 ? unique[0] : null;
-  if (match && nameKey(match.name!) !== q) {
+  // Records that differ only in how the series label is written are one book listed twice; any
+  // other duplicate name stays ambiguous.
+  const match = unique.length === 1 || (tier === "series" && unique.length > 1) ? unique[0] : null;
+  if (match && tier === "series") {
+    record.warnings.push(`verified first book of a series for "${query}": "${match.name}" (${match.entity_id})${unique.length > 1 ? `; ${unique.length - 1} more record(s) with the same title and #1 label not used` : ""}`);
+  } else if (match && tier === "subtitle") {
+    record.warnings.push(`verified title with subtitle for "${query}": "${match.name}" (${match.entity_id}); the subtitle has no sequel marker`);
+  } else if (match && nameKey(match.name!) !== q) {
     record.warnings.push(`verified name variant for "${query}": "${match.name}" (${match.entity_id}); punctuation/article or curated alias`);
   } else if (!match && typed.length) {
     record.warnings.push(`ambiguous or different title for "${query}": no unique verified name match; candidates: ${typed.map((e) => e.name).join(", ")}`);
@@ -250,13 +261,29 @@ function nameKey(s: string): string {
     .replace(/&/g, " and ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
+/** "Title (Series, #1)" -> "Title". Other volumes (#2, #1-4, #1.5) are not the same work. */
+function firstOfSeries(name: string): string | null {
+  const m = name.match(/^(.+?)\s*\(([^()]*?),?\s*#\s*1\)\s*$/);
+  return m ? m[1] : null;
+}
+
+const SEQUEL_MARK = /\b(part|vol|volume|season|arc|chapter|book|movie|film|episode|returns|ii|iii|iv|vi|\d+)\b/i;
+
+/** "Title: Subtitle" -> "Title", unless the subtitle reads like a sequel, a season or a spin-off film. */
+function withSubtitle(name: string): string | null {
+  const i = name.indexOf(":");
+  if (i <= 0) return null;
+  const subtitle = name.slice(i + 1).trim();
+  return subtitle && !SEQUEL_MARK.test(subtitle) ? name.slice(0, i) : null;
+}
+
 /** Editorial title aliases, not fuzzy guesses. Kept type-specific to avoid crossing adaptations. */
 function canonicalName(name: string, kind: ComparableKind): string {
   const key = nameKey(name).replace(/^the /, "");
   const aliases: Partial<Record<ComparableKind, Record<string, string>>> = {
     book: { "travelling cat chronicles": "traveling cat chronicles" },
     movie: { "tonari no totoro": "my neighbor totoro", "majo no takkyubin": "kikis delivery service" },
-    tv_show: { "shinya shokudo tokyo stories": "midnight diner tokyo stories" },
+    tv_show: { "shinya shokudo tokyo stories": "midnight diner tokyo stories", "shirokuma cafe": "polar bears cafe" },
   };
   return aliases[kind]?.[key] ?? key;
 }

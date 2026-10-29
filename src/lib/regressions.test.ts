@@ -7,7 +7,7 @@ import * as clock from "./date";
 import * as client from "./llm/client";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
 import { checkListingNames, listingNames } from "./listing-names";
-import { computeVerdicts, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches } from "./rules";
+import { computeVerdicts, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
 import { checkMakerAssumptions, preserveMakerNotes } from "./maker-assumptions";
 import { checkClaims } from "./claims";
 import { checkPractical, joinRisks } from "./practical";
@@ -859,4 +859,14 @@ test("a multi-word comparable stays blocked even when the maker wrote it", () =>
   const names = listingNames(state);
   assert.ok(names.includes("Studio Calm"));
   assert.ok(!names.includes("Calm"));
+});
+
+test("weight check counts the nearby weightings that keep the first idea first", () => {
+  const idea = (i: number, affinity: number, found: number, overlap = 0) =>
+    ({ idea: i, score: 0, formula: "", parts: { affinity, trend: 0, found, overlap }, missing: ["trend"], dontMake: false, dontMakeReason: null });
+  assert.deepEqual(weightCheck([idea(0, 0.9, 1), idea(1, 0.5, 0.5)], true), { held: 6, of: 6 });
+  // Ahead on affinity, behind on found: giving found more weight flips the order.
+  const close = weightCheck([idea(0, 0.9, 0.5), idea(1, 0.7, 0.75)], true);
+  assert.equal(close.of, 6);
+  assert.ok(close.held < 6 && close.held > 0, JSON.stringify(close));
 });

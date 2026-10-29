@@ -188,6 +188,8 @@ export interface IdeaScore {
   onHold?: boolean;
   /** true when Qloo gave this idea no taste signal to score (no comparables found, or no affinity): held and listed after the scored ideas. */
   unranked?: boolean;
+  /** On the first idea only: how many nearby weightings (each weight moved by 0.1) keep it first. */
+  robust?: { held: number; of: number };
   /** The call for this idea: make it, make it after fixing a wrong guess, skip it, or hold (not enough to decide). */
   call?: "make" | "fix" | "skip" | "hold";
   /** Why, in plain words. */
