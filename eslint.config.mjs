@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local scratch space (gitignored): QA scripts and design notes.
+    ".cache/**",
   ]),
 ]);
 

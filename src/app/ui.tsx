@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
 export function TasteMark() {
-  return <svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="m18 2 3.5 9.5 9.1-4.4-4.4 9.1 9.5 3.5-9.9 2 3 9.7-8.4-5.7-5 8.8-1-10-10.1 1.6 6.5-7.8-8-6.2 10.1.5L18 2Z" fill="currentColor"/><circle cx="18" cy="18" r="5" fill="var(--background, #f7f5ee)"/></svg>;
+  // Two offset tiles: the guess (outline) and the check (filled).
+  return <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="3" y="3" width="17" height="17" rx="4" stroke="currentColor" strokeWidth="2.5"/><rect x="12" y="12" width="17" height="17" rx="4" fill="currentColor"/></svg>;
 }
 export function Icon({ name }: { name: "arrow" | "check" | "spark" | "chart" | "book" | "layers" | "close" | "download" | "chevron" | "clock" }) {
   const paths: Record<typeof name, ReactNode> = {
