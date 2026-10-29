@@ -566,7 +566,10 @@ export async function step10Grounded(
           "challenged. Never put the audience's gender or age band in the title or tags. The description must say " +
           "concretely what the buyer gets, using only what the maker wrote about the product. Every tag must be a phrase a " +
           "buyer would type into the marketplace search for this item; no health, medical, 'evidence based' or results " +
-          "claims and no praise words such as 'well made' in tags or description. " +
+          "claims and no praise words such as 'well made' in tags or description. A mood word from a taste tag belongs in " +
+          "the title or description; in a tag it must be joined to the product type as a phrase buyers search (e.g. " +
+          "'minimalist coloring book'), never alone or in an odd pairing such as 'journey journal'. The listing must describe " +
+          "the same format your priceFit judged the price suits (printed or digital). " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
           "wording if dates are not supplied. Do not put trademarks, named brands, franchises, comparable titles or their " +
           "abbreviations in title, tags or description. Evidence names are for analysis only. Use generic product terms. " +

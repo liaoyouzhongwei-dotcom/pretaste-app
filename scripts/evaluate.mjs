@@ -406,6 +406,43 @@ const FRESH4_INPUTS = [
   },
 ];
 
+// Sealed after fresh4 (10/29): new topics, planted notes in other wordings.
+const FRESH5_INPUTS = [
+  {
+    id: "j-tarot",
+    input: { ideas: ["Tarot reading journal", "Moon phase ritual planner"], marketplace: "kdp", priceUsd: 8.99, ownAssumptions: "Tarot journals are bought mostly by men over 50." },
+    planted: { fact: "Tarot and astrology audiences skew female and under 35; men over 50 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "j-moto",
+    input: { ideas: ["Motorcycle ride log book", "Motorcycle maintenance record"], marketplace: "kdp", priceUsd: 7.99, ownAssumptions: "Motorcycle ride logs sell mostly to girls under 20." },
+    planted: { fact: "Motorcycle riders skew male and over 35; girls under 20 are a tiny minority." },
+    reps: 1,
+  },
+  {
+    id: "j-hunt",
+    input: { ideas: ["Deer hunting season logbook", "Wild game recipe cards"], marketplace: "etsy", priceUsd: 6, ownAssumptions: "Hunting logbooks are bought mostly by young women, many of them students." },
+    planted: { fact: "Hunters are overwhelmingly men, most of them over 35; young women students are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "j-sourdough",
+    input: { ideas: ["Sourdough starter feeding tracker (printable)", "Bread baking recipe cards", "Bakery label templates for home bakers"], marketplace: "etsy", priceUsd: 4 },
+    reps: 3,
+  },
+  {
+    id: "j-aquarium",
+    input: { ideas: ["Aquarium water testing log", "Freshwater fish care guide for beginners"], marketplace: "kdp", priceUsd: 9.99 },
+    reps: 1,
+  },
+  {
+    id: "j-bonsai",
+    input: { ideas: ["Bonsai care journal", "Bonsai styling sketchbook"], marketplace: "kdp", priceUsd: 10.99 },
+    reps: 1,
+  },
+];
+
 // Our own decisions (plan §5, docs/cases/C1-C3.md): one run per side, saved for the case record.
 // No judge and no score: the "after" is written by the decision owner from these outputs.
 const CASE_INPUTS = [
@@ -457,7 +494,7 @@ const CASE_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, cases: CASE_INPUTS };
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
@@ -574,7 +611,8 @@ function renderPretaste(state) {
   if (state.input.ownAssumptions) {
     L.push("", "The maker's own notes, checked against data:", state.input.ownAssumptions);
     (state.makerAssumptionChecks ?? []).forEach((a, i) => {
-      L.push(`- ${a.status}${a.idea === null ? "" : ` (${n(a.idea)})`}: ${a.text} ${a.reason}`);
+      const part = { age: "age", gender: "gender", region: "region", likes: "also likes", trendDirection: "trend" }[a.field];
+      L.push(`- ${a.status}${part ? ` (${part} part)` : ""}${a.idea === null ? "" : ` (${n(a.idea)})`}: ${a.text} ${a.reason}`);
       if (a.signals?.length) L.push(`  signals: ${a.signals.map((s) => `${s.field} = ${s.value}`).join(", ")}`);
       const g = p?.notes?.find((x) => x.check === i);
       if (g) L.push(`  general knowledge, not checked against data: ${g.read}: ${g.why}`);

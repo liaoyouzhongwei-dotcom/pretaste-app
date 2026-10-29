@@ -248,7 +248,7 @@ export function WhoTheyAreScreen({ run }: { run: RunState }) {
 }
 export function MakerAssumptionChecks({ run }: { run: RunState }) {
   if (!run.input.ownAssumptions) return null;
-  return <details className="p-panel p-detail"><summary>Your own assumptions</summary><blockquote className="quote">{run.input.ownAssumptions}</blockquote><ul className="stack">{(run.makerAssumptionChecks ?? []).map((a,i) => <li key={i} className="stack-tight"><p><Verdict v={a.status === "cannot check" ? "unverifiable" : a.status === "contradicts" ? "refuted" : "supported"} /> {readable(a.text)}{a.idea !== null && <span className="p-muted"> · idea {a.idea + 1}</span>}</p><p className="p-muted small">{a.reason}</p><div className="chip-row">{a.signals.map((s,j) => <EvidenceChip key={j} callId={s.callId} field={s.field} value={s.value} />)}</div>{(() => { const g = run.practical?.notes?.find((n) => n.check === i); return g ? <p className="small gk-read"><span className="tag-soft">General knowledge, not checked against data</span> {g.read}: {g.why}</p> : null; })()}</li>)}</ul></details>;
+  return <details className="p-panel p-detail"><summary>Your own assumptions</summary><blockquote className="quote">{run.input.ownAssumptions}</blockquote><ul className="stack">{(run.makerAssumptionChecks ?? []).map((a,i) => <li key={i} className="stack-tight"><p><Verdict v={a.status === "cannot check" ? "unverifiable" : a.status === "contradicts" ? "refuted" : "supported"} /> {NOTE_PART[a.field] && <strong>{NOTE_PART[a.field]}: </strong>}{readable(a.text)}{a.idea !== null && <span className="p-muted"> · idea {a.idea + 1}</span>}</p><p className="p-muted small">{a.reason}</p><div className="chip-row">{a.signals.map((s,j) => <EvidenceChip key={j} callId={s.callId} field={s.field} value={s.value} />)}</div>{(() => { const g = run.practical?.notes?.find((n) => n.check === i); return g ? <p className="small gk-read"><span className="tag-soft">General knowledge, not checked against data</span> {g.read}: {g.why}</p> : null; })()}</li>)}</ul></details>;
 }
 export function ReceiptsScreen({ run }: { run: RunState }) {
   const all = [...(run.verdicts ?? []).flatMap(v => v.claims.map(c => ({ c, where: ASSUMPTION_LABELS[v.field] }))), ...(run.groundedClaims ?? []).map(c => ({ c, where: "Taste-informed draft" }))];
@@ -260,6 +260,9 @@ export function ReceiptsScreen({ run }: { run: RunState }) {
     {!!run.decisions.length && <details className="p-panel p-detail"><summary>Agent decisions <span className="p-muted">· {run.decisions.length}</span></summary><ol className="note-list">{run.decisions.map((d,i)=><li key={i}><strong>Step {d.step} · {d.kind.replaceAll("_"," ")}</strong><p className="p-muted">{d.detail}</p></li>)}</ol></details>}
   </section>;
 }
+
+/** Which part of a maker note a check reads; one note can have an age and a gender part. */
+const NOTE_PART: Record<string, string> = { age: "Age", gender: "Gender", region: "Region", likes: "Also likes", trendDirection: "Trend", other: "" };
 
 export function summaryMarkdown(run: RunState, synthetic: boolean): string {
   const lines: string[] = [];
@@ -281,7 +284,7 @@ export function summaryMarkdown(run: RunState, synthetic: boolean): string {
   if (run.input.ownAssumptions) {
     lines.push("## Your assumptions", "", run.input.ownAssumptions, "");
     for (const a of run.makerAssumptionChecks ?? []) {
-      lines.push(`- **${a.status}**${a.idea === null ? "" : ` (idea ${a.idea + 1})`}: ${a.text}. ${a.reason}`);
+      lines.push(`- **${a.status}**${NOTE_PART[a.field] ? ` (${NOTE_PART[a.field].toLowerCase()})` : ""}${a.idea === null ? "" : ` (idea ${a.idea + 1})`}: ${a.text}. ${a.reason}`);
       for (const s of a.signals) lines.push(`  - ${s.field} = ${s.value} (${s.callId})`);
       const g = run.practical?.notes?.find((n) => n.check === (run.makerAssumptionChecks ?? []).indexOf(a));
       if (g) lines.push(`  - General knowledge, not checked against data: ${g.read}: ${g.why}`);

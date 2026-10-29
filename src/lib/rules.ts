@@ -639,10 +639,14 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
     ? open.filter((r) => !r.onHold && gap(top.score, r.score) < THRESHOLDS.tieMargin)
     : [];
   const tiedNames = tied.map((r) => `#${ranked.indexOf(r) + 1}`).join(", ");
-  const wrong = [
-    ...(state.verdicts ?? []).filter((v) => v.verdict === "refuted").map((v) => ASSUMPTION_LABELS[v.field].toLowerCase()),
-    ...(state.makerAssumptionChecks ?? []).filter((c) => c.status === "contradicts").map((c) => `your note "${c.text}"`),
-  ];
+  const wrongGuesses = (state.verdicts ?? []).filter((v) => v.verdict === "refuted").map((v) => ASSUMPTION_LABELS[v.field].toLowerCase());
+  // One note can hold an age and a gender part; name it once.
+  const wrongNotes = [...new Set((state.makerAssumptionChecks ?? []).filter((c) => c.status === "contradicts").map((c) => c.text))];
+  const wrong = [...wrongGuesses, ...wrongNotes];
+  const challenged = [
+    ...(wrongGuesses.length ? [`its ${wrongGuesses.join(", ")} guess${wrongGuesses.length > 1 ? "es" : ""}`] : []),
+    ...(wrongNotes.length ? [`your note${wrongNotes.length > 1 ? "s" : ""} ${wrongNotes.map((t) => `"${t}"`).join(", ")}`] : []),
+  ].join(" and ");
   for (const r of ranked) {
     if (r.onHold) { r.call = "hold"; r.callReason = r.dontMakeReason ?? "Not all comparables were checked."; continue; }
     if (r.unranked) { r.call = "hold"; r.callReason = r.dontMakeReason ?? ""; continue; }
@@ -658,7 +662,7 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
     if (r === top) {
       if (wrong.length && r.idea === state.focusIdea) {
         r.call = "fix";
-        r.callReason = `${second ? `Leads the next idea by ${pts(top.score - second.score)} points on Qloo affinity` : "Ranks first on Qloo affinity"}, but Qloo challenged its ${wrong.join(", ")} guess${wrong.length > 1 ? "es" : ""}: revise those, then research it.`;
+        r.callReason = `${second ? `Leads the next idea by ${pts(top.score - second.score)} points on Qloo affinity` : "Ranks first on Qloo affinity"}, but Qloo challenged ${challenged}: revise ${wrong.length > 1 ? "those" : "that"}, then research it.`;
       } else {
         r.call = "make";
         r.callReason = second ? `Leads the next idea by ${pts(top.score - second.score)} points on the same signals.` : `The only idea above the ${pts(THRESHOLDS.dontMake)}-point line.`;

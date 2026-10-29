@@ -13,7 +13,55 @@ export function preserveMakerNotes(input: ProductInput, parsed: MakerAssumption[
   if (/[\p{L}\p{N}]/u.test(remainder.replace(/\b(and|but|also)\b/gi, ""))) {
     kept.push({ text: notes, idea: null, field: "other", values: [] });
   }
-  return kept;
+  // The model sometimes files "bought mostly by women over 55" as an unchecked belief. Plain demographic
+  // words are also read by rule, so a stated age or gender is always checked whatever the model returned.
+  const out: MakerAssumption[] = [];
+  for (const a of kept) {
+    if (a.field !== "other") { out.push(a); continue; }
+    const sentences = a.text.match(/[^.!?]+[.!?]*/g)?.map((x) => x.trim()).filter(Boolean) ?? [a.text];
+    for (const text of sentences) {
+      const demo = ruleDemographics(text);
+      const covered = (f: string) => [...kept, ...out].some((x) => x.field === f && (x.text.includes(text) || text.includes(x.text)));
+      const idea = a.idea ?? ideaNamed(text, input.ideas);
+      if (demo.age && !covered("age")) out.push({ text, idea, field: "age", values: demo.age });
+      if (demo.gender && !covered("gender")) out.push({ text, idea, field: "gender", values: [demo.gender] });
+      if (!demo.age && !demo.gender) out.push({ ...a, text: sentences.length > 1 ? text : a.text });
+    }
+  }
+  return out;
+}
+
+const BAND_RANGE: Record<(typeof AGE_BANDS)[number], [number, number]> = {
+  "24_and_younger": [0, 24], "25_to_29": [25, 29], "30_to_34": [30, 34],
+  "35_to_44": [35, 44], "45_to_54": [45, 54], "55_and_older": [55, Infinity],
+};
+
+/** Age bands and gender stated in plain words; nothing is inferred from the product. */
+export function ruleDemographics(text: string): { age?: string[]; gender?: "female" | "male" } {
+  const t = text.toLowerCase();
+  const female = /\b(women|woman|girls?|moms?|mothers?|ladies|female)\b/.test(t);
+  const male = /\b(men|man|boys?|dads?|fathers?|male)\b/.test(t);
+  const over = t.match(/\b(?:over|above|older than)\s+(\d{2})\b|\b(\d{2})\s*(?:\+|and (?:over|older|up)\b)/);
+  const under = t.match(/\b(?:under|below|younger than)\s+(\d{2})\b/);
+  let age: string[] | undefined;
+  if (over) {
+    const n = Number(over[1] ?? over[2]);
+    age = AGE_BANDS.filter((b) => BAND_RANGE[b][1] > n);
+  } else if (under) {
+    const n = Number(under[1]);
+    age = AGE_BANDS.filter((b) => BAND_RANGE[b][0] < n);
+  } else if (/\b(teens?|teenage|teenagers?|kids|children|students|young people)\b/.test(t)) age = ["24_and_younger"];
+  else if (/\b(retirees|seniors|retired)\b/.test(t)) age = ["55_and_older"];
+  const gender = female !== male ? (female ? "female" : "male") as "female" | "male" : undefined;
+  return { ...(age?.length ? { age } : {}), ...(gender ? { gender } : {}) };
+}
+
+/** The one idea whose words the note uses, or null when it names none or several. */
+function ideaNamed(text: string, ideas: string[]): number | null {
+  const words = (s: string) => new Set((s.toLowerCase().match(/[a-z]{4,}/g) ?? []).map((w) => w.replace(/s$/, "")));
+  const note = words(text);
+  const hits = ideas.flatMap((idea, i) => ([...words(idea)].some((w) => note.has(w)) ? [i] : []));
+  return hits.length === 1 ? hits[0] : null;
 }
 
 const normalize = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
@@ -69,6 +117,12 @@ export function checkMakerAssumptions(state: RunState): MakerAssumptionCheck[] {
           break;
         }
         decide(signals.reduce((sum, s) => sum + Number(s.value), 0) / signals.length, THRESHOLDS.ageSkew);
+        // A mean can hide a group that points the other way (45-54 at -0.43 but 55+ at +0.14): then it is mixed, not decided.
+        const against = signals.filter((s) => result.status === "contradicts" ? Number(s.value) >= THRESHOLDS.ageSkew : result.status === "matches" && Number(s.value) <= -THRESHOLDS.ageSkew);
+        if (against.length) {
+          result.status = "cannot check";
+          result.reason = `Mixed: the stated age groups do not lean the same way (${signals.map((s) => `${s.field.slice(4)} ${s.value}`).join(", ")}). Relative affinity, not buyer counts.`;
+        }
         break;
       }
       case "gender": {

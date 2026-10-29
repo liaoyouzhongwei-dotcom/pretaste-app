@@ -66,6 +66,7 @@ export function checkPractical(
   priceUsd: number | undefined,
   today: Date = new Date(),
   cannotCheck: number[] = [],
+  checkTexts: string[] = [],
 ): PracticalCheck | undefined {
   if (!draft) return undefined;
   const ok = allowedNumbers(priceUsd, today);
@@ -105,7 +106,10 @@ export function checkPractical(
   const allowedChecks = new Set(cannotCheck);
   const notes: NonNullable<PracticalCheck["notes"]> = [];
   for (const n of draft.notes ?? []) {
-    if (!allowedChecks.has(n.check) || notes.some((x) => x.check === n.check) || !keep(n.why)) continue;
+    // A read may quote the numbers in the maker's own note ("over 55"), but no other figure.
+    const own = new Set(ok);
+    for (const m of checkTexts[n.check]?.match(/\d+(?:[.,]\d+)?/g) ?? []) own.add(m.replace(",", ""));
+    if (!allowedChecks.has(n.check) || notes.some((x) => x.check === n.check) || !keepWith(own)(n.why)) continue;
     notes.push({ check: n.check, read: n.read, why: showIdeaNumbers(n.why.trim()) });
   }
   return { ideas, tieBreak, ...(notes.length ? { notes } : {}), removed: dropped.length, dropped };

@@ -8,7 +8,7 @@ import * as client from "./llm/client";
 import { buildEvidence, pickReplacements, replaceComparables, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
 import { checkListingNames, listingNames } from "./listing-names";
 import { challengedLooks, computeVerdicts, dropChallengedTags, dropOwnSeries, seriesOf, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
-import { checkMakerAssumptions, preserveMakerNotes } from "./maker-assumptions";
+import { checkMakerAssumptions, preserveMakerNotes, ruleDemographics } from "./maker-assumptions";
 import { checkClaims } from "./claims";
 import { checkPractical, joinRisks } from "./practical";
 import { readable } from "./readable";
@@ -97,7 +97,63 @@ test("maker parsing keeps exact quotes and preserves omitted notes instead of in
   assert.equal(result.length, 2);
   assert.equal(result[0].text, "Mostly men");
   assert.equal(result[1].field, "other");
-  assert.equal(result[1].text, input.ownAssumptions);
+  // Only the sentence no check covers stays as an open note.
+  assert.equal(result[1].text, "The niche is safe.");
+});
+
+test("a stated age and gender left as an unchecked belief is still read by rule and tied to the idea it names", () => {
+  const input = { ideas: ["Skateboard trick log notebook", "Skate park sticker pack"], marketplace: "etsy" as const,
+    ownAssumptions: "Skateboard notebooks are bought mostly by women over 55." };
+  const result = preserveMakerNotes(input, []);
+  const age = result.find((a) => a.field === "age");
+  const gender = result.find((a) => a.field === "gender");
+  assert.deepEqual(age?.values, ["55_and_older"]);
+  assert.equal(age?.idea, 0);
+  assert.deepEqual(gender?.values, ["female"]);
+  assert.equal(gender?.idea, 0);
+  assert.ok(!result.some((a) => a.field === "other"));
+});
+
+test("plain demographic words map to bands and one gender; 'men' inside 'women' is not male", () => {
+  assert.deepEqual(ruleDemographics("Mostly teenage boys"), { age: ["24_and_younger"], gender: "male" });
+  assert.deepEqual(ruleDemographics("women over 60"), { age: ["55_and_older"], gender: "female" });
+  assert.deepEqual(ruleDemographics("Bought by women"), { gender: "female" });
+  assert.deepEqual(ruleDemographics("Men and women alike"), {});
+  assert.deepEqual(ruleDemographics("under 30"), { age: ["24_and_younger", "25_to_29"] });
+});
+
+test("a read of a maker note may quote the note's own numbers but no other figure", () => {
+  const ranking = [] as Parameters<typeof checkPractical>[2];
+  const draft = { ideas: [], tieBreak: null, notes: [
+    { check: 0, read: "likely wrong" as const, why: "Buyers over 55 rarely skate." },
+    { check: 1, read: "unsure" as const, why: "About 40 shops sell this." },
+  ] };
+  const out = checkPractical(draft, 2, ranking, undefined, new Date("2026-10-29T00:00:00Z"), [0, 1], ["Bought by women over 55.", "Mostly women."]);
+  assert.deepEqual(out?.notes?.map((n) => n.check), [0]);
+  assert.equal(out?.removed, 1);
+});
+
+test("maker age groups that lean opposite ways are mixed, not contradicted by their mean", () => {
+  const run = state();
+  run.makerAssumptions = [assertion("age", ["45_to_54", "55_and_older"], "Bought by people over 45")];
+  run.demographics = { age: { "45_to_54": -0.43, "55_and_older": 0.14 }, gender: {}, callId: "SYN-demo" };
+  const check = checkMakerAssumptions(run)[0];
+  assert.equal(check.status, "cannot check");
+  assert.match(check.reason, /^Mixed/);
+});
+
+test("a fix call names a challenged maker note once even when its age and gender parts both fail", () => {
+  const run = ranked([[0.7], [0.5]]);
+  run.focusIdea = 0;
+  run.verdicts = [];
+  const text = "Bought by women over 55.";
+  run.makerAssumptionChecks = [
+    { text, idea: 0, field: "age", values: ["55_and_older"], status: "contradicts", reason: "", signals: [] },
+    { text, idea: 0, field: "gender", values: ["female"], status: "contradicts", reason: "", signals: [] },
+  ];
+  const r = rankIdeas(run);
+  assert.equal(r[0].call, "fix");
+  assert.match(r[0].callReason ?? "", /challenged your note "Bought by women over 55\.": revise that/);
 });
 
 test("server date is ISO and both model prompts receive the same injected date without extra calls", async () => {
