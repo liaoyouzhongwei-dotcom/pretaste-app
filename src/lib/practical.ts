@@ -8,7 +8,7 @@ import { THRESHOLDS } from "./rules";
 import type { IdeaScore, PracticalCheck } from "./types";
 
 interface Draft {
-  ideas: { idea: number; risks: string[]; priceFit: string }[];
+  ideas: { idea: number; risks: string[]; priceFit: string; read?: "good bet" | "risky" | "poor bet"; reason?: string; blocker?: string }[];
   tieBreak: { idea: number; why: string } | null;
   notes?: { check: number; read: "likely right" | "likely wrong" | "unsure"; why: string }[];
 }
@@ -88,7 +88,16 @@ export function checkPractical(
   for (const it of draft.ideas) {
     if (!Number.isInteger(it.idea) || it.idea < 0 || it.idea >= ideaCount || seen.has(it.idea)) continue;
     seen.add(it.idea);
-    ideas.push({ idea: it.idea, risks: it.risks.filter(keep).slice(0, 3).map((r) => showIdeaNumbers(r.trim())), priceFit: keep(it.priceFit) ? showIdeaNumbers(it.priceFit.trim()) : "" });
+    const reason = it.reason && keep(it.reason) ? showIdeaNumbers(it.reason.trim()) : "";
+    const blocker = it.blocker && keep(it.blocker) ? showIdeaNumbers(it.blocker.trim()) : "";
+    ideas.push({
+      idea: it.idea,
+      risks: it.risks.filter(keep).slice(0, 3).map((r) => showIdeaNumbers(r.trim())),
+      priceFit: keep(it.priceFit) ? showIdeaNumbers(it.priceFit.trim()) : "",
+      ...(it.read ? { read: it.read } : {}),
+      ...(reason ? { reason } : {}),
+      ...(blocker ? { blocker } : {}),
+    });
   }
   ideas.sort((a, b) => a.idea - b.idea);
   const held = startCandidates(ranking);
