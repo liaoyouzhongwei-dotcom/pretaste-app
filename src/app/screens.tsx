@@ -224,7 +224,7 @@ export function practicalLines(run: RunState): string[] {
   const p = run.practical;
   if (!p || (!p.ideas.length && !p.tieBreak)) return [];
   const out = ["", "## Outside the data", "", "General knowledge from the model, not checked against Qloo or any data.", ""];
-  if (p.tieBreak) out.push(`- Too close to call on the data. Where to start: Idea ${p.tieBreak.idea + 1} — ${p.tieBreak.why}`);
+  if (p.tieBreak) out.push(`- The data does not name a first idea. Where to start: Idea ${p.tieBreak.idea + 1} — ${p.tieBreak.why}`);
   for (const it of p.ideas) out.push(`- Idea ${it.idea + 1}${it.priceFit ? ` — price: ${it.priceFit}` : ""}${it.risks.length ? ` — risks: ${joinRisks(it.risks)}` : ""}`);
   return out;
 }
@@ -240,7 +240,7 @@ export function WhatToMakeScreen({ run }: { run: RunState }) {
 function PracticalBox({ run }: { run: RunState }) {
   const p = run.practical;
   if (!p || (!p.ideas.length && !p.tieBreak)) return null;
-  return <details className="p-panel p-detail panel-dashed"><summary>Practical considerations <span className="p-muted">· model interpretation</span></summary><p className="p-muted small">General knowledge, not checked against Qloo or other data. Use these as questions for your research.</p>{p.tieBreak && <p>Signals are too close to call. A practical starting point: idea {p.tieBreak.idea+1} — {p.tieBreak.why}</p>}<ul className="stack">{p.ideas.map(it => <li key={it.idea}><strong>Idea {it.idea+1}</strong>{it.priceFit && <p>Price consideration: {it.priceFit}</p>}{!!it.risks.length && <p className="p-muted">Questions / risks: {joinRisks(it.risks)}</p>}</li>)}</ul></details>;
+  return <details className="p-panel p-detail panel-dashed"><summary>Practical considerations <span className="p-muted">· model interpretation</span></summary><p className="p-muted small">General knowledge, not checked against Qloo or other data. Use these as questions for your research.</p>{p.tieBreak && <p>The data does not name a first idea. A practical starting point: idea {p.tieBreak.idea+1} — {p.tieBreak.why}</p>}<ul className="stack">{p.ideas.map(it => <li key={it.idea}><strong>Idea {it.idea+1}</strong>{it.priceFit && <p>Price consideration: {it.priceFit}</p>}{!!it.risks.length && <p className="p-muted">Questions / risks: {joinRisks(it.risks)}</p>}</li>)}</ul></details>;
 }
 export function WhoTheyAreScreen({ run }: { run: RunState }) {
   const neighbors = [...(run.neighbors ?? [])].sort((a,b) => b.affinity-a.affinity).slice(0,8), demo=run.demographics, regions=[...(run.heatmap ?? [])].sort((a,b)=>b.score-a.score).slice(0,5);
@@ -248,7 +248,7 @@ export function WhoTheyAreScreen({ run }: { run: RunState }) {
 }
 export function MakerAssumptionChecks({ run }: { run: RunState }) {
   if (!run.input.ownAssumptions) return null;
-  return <details className="p-panel p-detail"><summary>Your own assumptions</summary><blockquote className="quote">{run.input.ownAssumptions}</blockquote><ul className="stack">{(run.makerAssumptionChecks ?? []).map((a,i) => <li key={i} className="stack-tight"><p><Verdict v={a.status === "cannot check" ? "unverifiable" : a.status === "contradicts" ? "refuted" : "supported"} /> {readable(a.text)}{a.idea !== null && <span className="p-muted"> · idea {a.idea + 1}</span>}</p><p className="p-muted small">{a.reason}</p><div className="chip-row">{a.signals.map((s,j) => <EvidenceChip key={j} callId={s.callId} field={s.field} value={s.value} />)}</div></li>)}</ul></details>;
+  return <details className="p-panel p-detail"><summary>Your own assumptions</summary><blockquote className="quote">{run.input.ownAssumptions}</blockquote><ul className="stack">{(run.makerAssumptionChecks ?? []).map((a,i) => <li key={i} className="stack-tight"><p><Verdict v={a.status === "cannot check" ? "unverifiable" : a.status === "contradicts" ? "refuted" : "supported"} /> {readable(a.text)}{a.idea !== null && <span className="p-muted"> · idea {a.idea + 1}</span>}</p><p className="p-muted small">{a.reason}</p><div className="chip-row">{a.signals.map((s,j) => <EvidenceChip key={j} callId={s.callId} field={s.field} value={s.value} />)}</div>{(() => { const g = run.practical?.notes?.find((n) => n.check === i); return g ? <p className="small gk-read"><span className="tag-soft">General knowledge, not checked against data</span> {g.read}: {g.why}</p> : null; })()}</li>)}</ul></details>;
 }
 export function ReceiptsScreen({ run }: { run: RunState }) {
   const all = [...(run.verdicts ?? []).flatMap(v => v.claims.map(c => ({ c, where: ASSUMPTION_LABELS[v.field] }))), ...(run.groundedClaims ?? []).map(c => ({ c, where: "Taste-informed draft" }))];
@@ -283,6 +283,8 @@ export function summaryMarkdown(run: RunState, synthetic: boolean): string {
     for (const a of run.makerAssumptionChecks ?? []) {
       lines.push(`- **${a.status}**${a.idea === null ? "" : ` (idea ${a.idea + 1})`}: ${a.text}. ${a.reason}`);
       for (const s of a.signals) lines.push(`  - ${s.field} = ${s.value} (${s.callId})`);
+      const g = run.practical?.notes?.find((n) => n.check === (run.makerAssumptionChecks ?? []).indexOf(a));
+      if (g) lines.push(`  - General knowledge, not checked against data: ${g.read}: ${g.why}`);
     }
     lines.push("");
   }

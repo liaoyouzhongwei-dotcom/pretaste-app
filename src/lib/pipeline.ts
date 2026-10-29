@@ -472,9 +472,8 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
       );
       const looks = dropChallengedTags(names.listing.tags, challengedLooks(state.styleRanking));
       state.groundedListing = { ...names.listing, tags: looks.tags };
-      const practical = v.practical && state.ranking?.some((r) => r.onHold)
-        ? { ...v.practical, tieBreak: null } : v.practical;
-      state.practical = checkPractical(practical, state.input.ideas.length, state.ranking ?? [], state.input.priceUsd);
+      const cannotCheck = (state.makerAssumptionChecks ?? []).flatMap((a, i) => (a.status === "cannot check" ? [i] : []));
+      state.practical = checkPractical(v.practical, state.input.ideas.length, state.ranking ?? [], state.input.priceUsd, new Date(), cannotCheck);
       state.groundedClaims = [...check.kept, ...check.downgraded.map((d) => d.claim)];
       state.checker = {
         downgraded: check.downgraded.length,

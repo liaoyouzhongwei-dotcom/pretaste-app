@@ -369,6 +369,43 @@ const FRESH3_INPUTS = [
   },
 ];
 
+// Fourth sealed set (written 10/29 evening after the fresh3 fixes; not run before it is scored).
+const FRESH4_INPUTS = [
+  {
+    id: "i-quilt",
+    input: { ideas: ["Quilting pattern planner", "Fabric stash inventory log"], marketplace: "kdp", priceUsd: 8.99, ownAssumptions: "Quilting planners are bought mostly by teenage boys." },
+    planted: { fact: "Quilters are overwhelmingly women, most of them over 45; teenage boys are a tiny minority." },
+    reps: 1,
+  },
+  {
+    id: "i-skate",
+    input: { ideas: ["Skateboard trick log notebook", "Skate park sticker pack"], marketplace: "etsy", priceUsd: 6, ownAssumptions: "Skateboard notebooks are bought mostly by women over 55." },
+    planted: { fact: "Skateboarders skew young and male; women over 55 are a tiny minority." },
+    reps: 1,
+  },
+  {
+    id: "i-lifting",
+    input: { ideas: ["Bodybuilding workout log", "High protein meal prep planner"], marketplace: "kdp", priceUsd: 7.99, ownAssumptions: "Bodybuilding logs are bought mostly by women over 60." },
+    planted: { fact: "Bodybuilding and weight training audiences skew male and 18 to 34; women over 60 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "i-xmas",
+    input: { ideas: ["Christmas cookie recipe cards (printable)", "Holiday gift tag templates", "Advent calendar activity cards for families"], marketplace: "etsy", priceUsd: 5 },
+    reps: 3,
+  },
+  {
+    id: "i-birds",
+    input: { ideas: ["Backyard bird watching journal", "Bird identification flash cards"], marketplace: "kdp", priceUsd: 9.99 },
+    reps: 1,
+  },
+  {
+    id: "i-chess",
+    input: { ideas: ["Chess opening study notebook", "Chess puzzle book for beginners"], marketplace: "kdp", priceUsd: 8.99 },
+    reps: 1,
+  },
+];
+
 // Our own decisions (plan §5, docs/cases/C1-C3.md): one run per side, saved for the case record.
 // No judge and no score: the "after" is written by the decision owner from these outputs.
 const CASE_INPUTS = [
@@ -420,7 +457,7 @@ const CASE_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, cases: CASE_INPUTS };
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
@@ -518,13 +555,16 @@ function renderPretaste(state) {
     if (r.missing?.length && !r.unranked) line += ` — no signal for: ${r.missing.join(", ")}`;
     L.push(line);
   }
-  const top = pretasteTop(state);
   const p = state.practical;
   const held = (state.ranking || []).filter((r) => r.call === "hold" && !r.unranked && !r.onHold).map((r) => r.idea);
-  if (held.length >= 2) {
-    L.push(`Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores under 5 points apart).`);
+  const named = (state.ranking || []).find((r) => r.call === "make" || r.call === "fix");
+  if (named) L.push(`Suggested first: ${n(named.idea)}`);
+  else {
+    L.push(held.length >= 2
+      ? `Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores under 5 points apart).`
+      : "Suggested first: the data does not name a first idea.");
     if (p?.tieBreak) L.push(`Where to start anyway (general knowledge, not checked against data): ${n(p.tieBreak.idea)} — ${p.tieBreak.why}`);
-  } else L.push(`Suggested first: ${top ? n(top.idea) : "none"}`);
+  }
   // Same content as the app's "Outside the data" section (screens.tsx practicalLines).
   if (p?.ideas?.length) {
     L.push("", "Outside the data (general knowledge from the model, not checked against data):");
@@ -533,10 +573,12 @@ function renderPretaste(state) {
   // Same content as the app's "Your assumptions" section (screens.tsx summary export).
   if (state.input.ownAssumptions) {
     L.push("", "The maker's own notes, checked against data:", state.input.ownAssumptions);
-    for (const a of state.makerAssumptionChecks ?? []) {
+    (state.makerAssumptionChecks ?? []).forEach((a, i) => {
       L.push(`- ${a.status}${a.idea === null ? "" : ` (${n(a.idea)})`}: ${a.text} ${a.reason}`);
       if (a.signals?.length) L.push(`  signals: ${a.signals.map((s) => `${s.field} = ${s.value}`).join(", ")}`);
-    }
+      const g = p?.notes?.find((x) => x.check === i);
+      if (g) L.push(`  general knowledge, not checked against data: ${g.read}: ${g.why}`);
+    });
   }
   if (state.verdicts?.length) {
     L.push("", `Buyer assumptions for ${n(state.focusIdea)}, checked against data:`);

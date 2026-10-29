@@ -10,6 +10,14 @@ import type { IdeaScore, PracticalCheck } from "./types";
 interface Draft {
   ideas: { idea: number; risks: string[]; priceFit: string }[];
   tieBreak: { idea: number; why: string } | null;
+  notes?: { check: number; read: "likely right" | "likely wrong" | "unsure"; why: string }[];
+}
+
+/** Ideas the general-knowledge pick may choose from: none while the data names a first idea. */
+export function startCandidates(ranking: IdeaScore[]): number[] {
+  if (ranking.some((r) => r.call === "make" || r.call === "fix")) return [];
+  const open = ranking.filter((r) => !r.dontMake && r.call !== "skip").map((r) => r.idea);
+  return open.length >= 2 ? open : [];
 }
 
 function allowedNumbers(priceUsd: number | undefined, today: Date): Set<string> {
@@ -57,6 +65,7 @@ export function checkPractical(
   ranking: IdeaScore[],
   priceUsd: number | undefined,
   today: Date = new Date(),
+  cannotCheck: number[] = [],
 ): PracticalCheck | undefined {
   if (!draft) return undefined;
   const ok = allowedNumbers(priceUsd, today);
@@ -77,7 +86,7 @@ export function checkPractical(
     ideas.push({ idea: it.idea, risks: it.risks.filter(keep).slice(0, 3).map((r) => showIdeaNumbers(r.trim())), priceFit: keep(it.priceFit) ? showIdeaNumbers(it.priceFit.trim()) : "" });
   }
   ideas.sort((a, b) => a.idea - b.idea);
-  const held = heldTop(ranking);
+  const held = startCandidates(ranking);
   let tieBreak: PracticalCheck["tieBreak"] = null;
   const t = draft.tieBreak;
   // The tie-break may quote the scores shown in the ranking, their gap and the tie margin (that is why they are tied).
@@ -92,5 +101,12 @@ export function checkPractical(
   }
   addNum(THRESHOLDS.tieMargin);
   if (t && held.length >= 2 && held.includes(t.idea) && keepWith(tieOk)(t.why)) tieBreak = { idea: t.idea, why: showIdeaNumbers(t.why.trim()) };
-  return { ideas, tieBreak, removed: dropped.length, dropped };
+  // Reads only for notes the data left open, one per check, numbers limited like the rest of this section.
+  const allowedChecks = new Set(cannotCheck);
+  const notes: NonNullable<PracticalCheck["notes"]> = [];
+  for (const n of draft.notes ?? []) {
+    if (!allowedChecks.has(n.check) || notes.some((x) => x.check === n.check) || !keep(n.why)) continue;
+    notes.push({ check: n.check, read: n.read, why: showIdeaNumbers(n.why.trim()) });
+  }
+  return { ideas, tieBreak, ...(notes.length ? { notes } : {}), removed: dropped.length, dropped };
 }

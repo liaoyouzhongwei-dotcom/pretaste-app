@@ -238,8 +238,10 @@ export interface IdeaNeighbors {
  */
 export interface PracticalCheck {
   ideas: { idea: number; risks: string[]; priceFit: string }[];
-  /** Only when the rules held two or more top ideas as too close to call: where to start, for a practical reason. */
+  /** Only when no idea is make or fix (a tie, or ideas the data could not rank): where to start, for a practical reason. */
   tieBreak: { idea: number; why: string } | null;
+  /** General-knowledge read of a maker note the data could not settle (check = index in makerAssumptionChecks). */
+  notes?: { check: number; read: "likely right" | "likely wrong" | "unsure"; why: string }[];
   /** Sentences removed because they stated figures the data does not hold. */
   removed: number;
   /** The removed sentences themselves, kept for review (not shown as advice). */

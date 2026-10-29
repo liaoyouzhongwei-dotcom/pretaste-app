@@ -98,6 +98,8 @@ const PracticalSchema = z.object({
     }),
   ),
   tieBreak: z.object({ idea: z.number().int(), why: z.string() }).nullable(),
+  /** General-knowledge read of each maker note the data could not settle (index into the maker assumption checks). */
+  notes: z.array(z.object({ check: z.number().int(), read: z.enum(["likely right", "likely wrong", "unsure"]), why: z.string() })),
 });
 export type PracticalDraft = z.infer<typeof PracticalSchema>;
 
@@ -340,12 +342,13 @@ export async function step1Comparables(
         maxTokens: 1500,
         system:
           "Pick well-known, real, findable works or brands (books, films, TV, games, podcasts, artists, brands) whose " +
-          "fans would plausibly buy each product idea. Use the exact common title. 2-3 per idea. Pick titles about the " +
-          "product's own subject or activity first (for a knitting planner, a bestselling knitting book or a yarn brand; " +
-          "for a pregnancy journal, a bestselling pregnancy book), so their fans are the people who do that activity. Add a " +
-          "general film, TV or game title only when it is itself about that subject. Never use a children's title for a " +
-          "product an adult buys for themselves. Bestselling books and major consumer brands are found most reliably; " +
-          "magazines, small shops and niche brands are usually not found. Also list up to 6 short " +
+          "fans would plausibly buy each product idea. Use the exact common title. 2-3 per idea. Mix two kinds: one " +
+          "bestselling book or major brand about the product's own subject or activity (for a knitting planner, a bestselling " +
+          "knitting book; for a pregnancy journal, a bestselling pregnancy book), and one or two very popular titles whose " +
+          "fans are clearly the people who do that activity (a hit film, TV show, game or book about it). Never use a " +
+          "children's title for a product an adult buys for themselves, and never a title unrelated to the subject. Very " +
+          "popular titles carry the most taste data; niche how-to books, " +
+          "magazines and small brands often have little or none. Also list up to 6 short " +
           "taste tags (e.g. 'cozy', 'slow living') to check.",
         user: describeInput(state.input),
       });
@@ -426,7 +429,7 @@ export async function replaceComparables(
         system:
           "An entity search could not find some comparables. For each idea listed, give up to 2 other real, widely known " +
           "works or brands (bestselling books, hit films or TV shows, popular podcasts, artists or major brands) whose fans " +
-          "would plausibly buy that idea, about the product's own subject or activity first; prefer bestselling books, since " +
+          "would plausibly buy that idea, about the product's own subject or activity; prefer very popular titles (hit films, TV shows, bestselling books), since " +
           "magazines and niche brands are usually not found. Use the exact official title. " +
           "Do not repeat any title already tried. " +
           "Return candidateTags as an empty list.",
@@ -576,11 +579,14 @@ export async function step10Grounded(
           "In a crowded category, name one concrete " +
           "angle that would make this version stand out. This part is shown labelled 'general knowledge, not " +
           "checked against data': no audience statistics and no invented figures; the only numbers allowed are the maker's " +
-          "own price and calendar years. Set 'tieBreak' only when two or more top ideas are HOLD because their scores are " +
-          "too close to call: pick the one to start with among those held ideas for a practical reason (season now, less " +
-          "effort, price fit) and say the score did not decide it. The pick must agree with your own risks and priceFit: " +
-          "never pick an idea whose priceFit says it cannot make money, or whose season is already too late, while another " +
-          "held idea has no such problem. Otherwise tieBreak is null.",
+          "own price and calendar years. Set 'tieBreak' only when no idea is MAKE or FIX in the ranking (top ideas HOLD " +
+          "because their scores are too close to call, or ideas not ranked for lack of data): pick the one to start with " +
+          "among the ideas that are not SKIP, for a practical reason (season now, less effort, price fit) and say the data " +
+          "did not decide it. The pick must agree with your own risks and priceFit: never pick an idea whose priceFit says " +
+          "it cannot make money, or whose season is already too late, while another idea has no such problem. Otherwise " +
+          "tieBreak is null. In 'notes', for each maker assumption check whose status is 'cannot check' (check = its " +
+          "zero-based position in that list), give your general-knowledge read of the maker's belief: 'likely right', " +
+          "'likely wrong' or 'unsure', and one plain sentence why, with no statistics. Leave notes empty when there is none.",
         user: [
           `Current server date (UTC, ISO): ${currentDate()}`,
           describeInput(state.input),

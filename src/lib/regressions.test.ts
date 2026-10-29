@@ -1019,3 +1019,25 @@ test("a guessed age band clearly below the others makes the age guess mixed, not
   assert.equal(age.verdict, "unverifiable");
   assert.match(age.reason, /^mixed: .*35_to_44 \(-0\.38\)/);
 });
+
+test("when the data names no first idea, a labelled general-knowledge start and reads of open notes are kept", () => {
+  const row = (idea: number, call: "make" | "hold" | "skip", unranked = false) =>
+    ({ idea, score: 0.5, formula: "", parts: {}, missing: [], dontMake: false, dontMakeReason: null, call, callReason: "", ...(unranked ? { unranked: true } : {}) });
+  // Synthetic: both ideas could not be ranked.
+  const unranked = [row(0, "hold", true), row(1, "hold", true)];
+  const draft = {
+    ideas: [],
+    tieBreak: { idea: 0, why: "It fits the price as a printed log; the data did not decide it." },
+    notes: [
+      { check: 0, read: "likely wrong" as const, why: "Anglers are mostly men." },
+      { check: 1, read: "likely right" as const, why: "Not an open note." },
+      { check: 0, read: "unsure" as const, why: "A second read of the same note." },
+      { check: 2, read: "unsure" as const, why: "About 70% of buyers are women." },
+    ],
+  };
+  const p = checkPractical(draft, 2, unranked, 9, new Date("2026-10-26T00:00:00Z"), [0, 2]);
+  assert.equal(p?.tieBreak?.idea, 0);
+  assert.deepEqual(p?.notes, [{ check: 0, read: "likely wrong", why: "Anglers are mostly men." }]);
+  // Once the data names a first idea, no general-knowledge start is shown.
+  assert.equal(checkPractical(draft, 2, [row(0, "make"), row(1, "hold", true)], 9, new Date(), [0])?.tieBreak, null);
+});
