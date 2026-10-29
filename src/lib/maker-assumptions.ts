@@ -44,8 +44,11 @@ export function checkMakerAssumptions(state: RunState): MakerAssumptionCheck[] {
     const result: MakerAssumptionCheck = {
       ...a, status: "cannot check", reason: "Qloo does not measure this assertion.", signals: [],
     };
-    if (a.idea !== null && a.idea !== state.focusIdea) {
-      result.reason = `The audience checks cover selected idea ${state.focusIdea + 1}, not idea ${a.idea + 1}.`;
+    // Age and gender notes about another idea use that idea's own comparables (fetched in step 7).
+    const otherIdea = a.idea !== null && a.idea !== state.focusIdea;
+    const demo = otherIdea ? state.makerDemographics?.find((m) => m.idea === a.idea)?.skew : state.demographics;
+    if (otherIdea && !(demo && (a.field === "age" || a.field === "gender"))) {
+      result.reason = `The audience checks cover selected idea ${state.focusIdea + 1}, not idea ${a.idea! + 1}.`;
       return result;
     }
     const decide = (value: number, threshold: number) => {
@@ -54,9 +57,9 @@ export function checkMakerAssumptions(state: RunState): MakerAssumptionCheck[] {
     };
     switch (a.field) {
       case "age": {
-        const age = state.demographics?.age;
-        if (!age || !state.demographics) break;
-        const d = state.demographics;
+        const age = demo?.age;
+        if (!age || !demo) break;
+        const d = demo;
         result.signals = Object.entries(age).filter(([, v]) => typeof v === "number" && Number.isFinite(v))
           .map(([band, value]) => ({ callId: d.callId, field: `age.${band}`, value: value! }));
         const bands = a.values.filter((v) => AGE_BANDS.includes(v as typeof AGE_BANDS[number]));
@@ -69,7 +72,7 @@ export function checkMakerAssumptions(state: RunState): MakerAssumptionCheck[] {
         break;
       }
       case "gender": {
-        const d = state.demographics;
+        const d = demo;
         if (!d) break;
         result.signals = Object.entries(d.gender).filter(([, v]) => typeof v === "number" && Number.isFinite(v))
           .map(([gender, value]) => ({ callId: d.callId, field: `gender.${gender}`, value: value! }));

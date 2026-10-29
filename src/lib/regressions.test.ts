@@ -5,7 +5,7 @@ import { afterEach, beforeEach, mock, test } from "node:test";
 import { SCENARIOS } from "../fixtures/scenarios";
 import * as clock from "./date";
 import * as client from "./llm/client";
-import { buildEvidence, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
+import { buildEvidence, pickReplacements, replaceComparables, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
 import { checkListingNames, listingNames } from "./listing-names";
 import { challengedLooks, computeVerdicts, dropChallengedTags, dropOwnSeries, seriesOf, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
 import { checkMakerAssumptions, preserveMakerNotes } from "./maker-assumptions";
@@ -973,4 +973,38 @@ test("neighbors that are another entry of a comparable's own series are left out
   const r = dropOwnSeries(list, own);
   assert.deepEqual(r.kept.map((x) => x.entityId), ["n2", "n4"]);
   assert.deepEqual(r.dropped.map((x) => x.entityId), ["n1", "n3", "c1"]);
+});
+
+test("a maker's age and gender note about another idea is checked against that idea's own comparables", () => {
+  const run = state();
+  const text = "Golf log books are bought by teenage girls.";
+  run.makerAssumptions = [{ text, idea: 1, field: "age", values: ["24_and_younger"] }, { text, idea: 1, field: "gender", values: ["female"] },
+    { text: "Kids love it", idea: 1, field: "other", values: [] }];
+  run.demographics = { age: { "24_and_younger": 0.4 }, gender: { female: 0.4 }, callId: "SYN-focus" };
+  run.makerDemographics = [{ idea: 1, skew: { age: { "24_and_younger": -0.3 }, gender: { female: -0.2 }, callId: "SYN-other" } }];
+  const checks = checkMakerAssumptions(run);
+  assert.deepEqual(checks.map((c) => c.status), ["contradicts", "contradicts", "cannot check"]);
+  assert.ok(checks[0].signals.every((s) => s.callId === "SYN-other"));
+  // Without that idea's own signals the note stays unchecked rather than borrowing the selected idea's.
+  run.makerDemographics = [];
+  assert.ok(checkMakerAssumptions(run).every((c) => c.status === "cannot check"));
+});
+
+test("an idea held for missing evidence is not part of a tie, so no tie-break is offered for it", () => {
+  const score = (idea: number, s: number, extra: Record<string, unknown>) =>
+    ({ idea, score: s, formula: "", parts: {}, missing: [], dontMake: false, dontMakeReason: null, call: "hold" as const, callReason: "", ...extra });
+  const ranking = [{ ...score(1, 0.93, {}), call: "fix" as const }, score(0, 0.82, { unranked: true }), score(2, 0.82, { unranked: true })];
+  const p = checkPractical({ ideas: [], tieBreak: { idea: 2, why: "It is less effort." } }, 3, ranking, 10);
+  assert.equal(p?.tieBreak, null);
+});
+
+test("replacement comparables skip titles already tried, keep at most 2 per idea, and none offline", async () => {
+  const missing = [{ idea: 0, notFound: ["[SYN] Rare Book"], tried: ["[SYN] Rare Book", "[SYN] Found Film"] }];
+  const picked = pickReplacements([
+    { name: "[SYN] rare book", kind: "book", idea: 0 }, { name: "[SYN] New A", kind: "movie", idea: 0 },
+    { name: "[SYN] New A", kind: "movie", idea: 0 }, { name: " [SYN] New B ", kind: "tv_show", idea: 0 },
+    { name: "[SYN] New C", kind: "brand", idea: 0 }, { name: "[SYN] Other idea", kind: "brand", idea: 1 },
+  ], missing);
+  assert.deepEqual(picked.map((c) => c.name), ["[SYN] New A", "[SYN] New B"]);
+  assert.deepEqual((await replaceComparables(state().input, missing)).value, []);
 });

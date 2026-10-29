@@ -48,6 +48,7 @@
  *   node scripts/evaluate.mjs --dry               # print the plan, call nothing
  *   node scripts/evaluate.mjs --set holdout       # the sealed holdout set (once)
  *   node scripts/evaluate.mjs --set fresh         # the sealed fresh set on the current version (once)
+ *   node scripts/evaluate.mjs --set fresh2        # the second sealed fresh set, after the fixes (once)
  *   node scripts/evaluate.mjs --set cases --only C1  # our own decision cases: one run per side, no score
  */
 import { execFileSync, spawn } from "node:child_process";
@@ -266,6 +267,71 @@ const FRESH_INPUTS = [
   },
 ];
 
+// Second fresh set (--set fresh2, sealed 2026-10-29 evening): written after the fixes to what the first fresh
+// set exposed and before any run on them; never used to tune, reported as-is. Same shape as the fresh set.
+const FRESH2_INPUTS = [
+  {
+    id: "g-yoga",
+    input: {
+      ideas: ["Yoga practice journal", "Meditation affirmation cards (printable)"],
+      marketplace: "etsy",
+      priceUsd: 9,
+      ownAssumptions: "Yoga journals are bought mostly by men.",
+    },
+    planted: { fact: "Yoga practitioners and buyers of yoga journals skew strongly female; men are a minority." },
+    reps: 1,
+  },
+  {
+    id: "g-gaming",
+    input: {
+      ideas: ["Video game achievement tracker notebook", "Retro arcade pixel art sticker sheet"],
+      marketplace: "etsy",
+      priceUsd: 7,
+      ownAssumptions: "Video game notebooks are bought mostly by women over 55.",
+    },
+    planted: { fact: "Buyers of video game merchandise skew young (teens to 30s) and male; women over 55 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "g-knitting",
+    input: {
+      ideas: ["Knitting project planner", "Crochet pattern notebook"],
+      marketplace: "kdp",
+      priceUsd: 8.99,
+      ownAssumptions: "Knitting planners are bought mostly by young men.",
+    },
+    planted: { fact: "Knitting and crochet buyers skew strongly female and older; young men are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "g-wedding",
+    input: {
+      ideas: ["Wedding planner binder (printable)", "Bridal shower game cards", "Save the date card templates"],
+      marketplace: "etsy",
+      priceUsd: 12,
+    },
+    reps: 3,
+  },
+  {
+    id: "g-hiking",
+    input: {
+      ideas: ["National park hiking log book", "Camping recipe journal"],
+      marketplace: "kdp",
+      priceUsd: 8.99,
+    },
+    reps: 1,
+  },
+  {
+    id: "g-baby",
+    input: {
+      ideas: ["Baby's first year memory book", "Pregnancy journal week by week"],
+      marketplace: "kdp",
+      priceUsd: 10.99,
+    },
+    reps: 1,
+  },
+];
+
 // Our own decisions (plan §5, docs/cases/C1-C3.md): one run per side, saved for the case record.
 // No judge and no score: the "after" is written by the decision owner from these outputs.
 const CASE_INPUTS = [
@@ -317,7 +383,7 @@ const CASE_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, cases: CASE_INPUTS };
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
@@ -400,44 +466,47 @@ function pretasteTop(state) {
 }
 
 function renderPretaste(state) {
+  // Mirrors the app (screens.tsx): ideas are numbered from 1 and scores are out of 100, the same as the
+  // product's own sentences, so the judge does not see two numbering schemes in one report.
   const ideas = state.input.ideas;
-  const L = ["Ideas, best first:"];
-  for (const r of [...(state.ranking || [])].sort((a, b) => b.score - a.score)) {
-    let line = `- Idea ${r.idea} (${ideas[r.idea]}): score ${r.score}`;
+  const n = (i) => `Idea ${i + 1}`;
+  const L = ["Ideas, in the app's order (research priority from Qloo taste data, not a sales forecast):"];
+  for (const r of state.ranking || []) {
+    let line = `- ${n(r.idea)} (${ideas[r.idea]}): ${r.unranked ? "not ranked (no taste signal)" : `${Math.round(r.score * 1000) / 10} / 100`}`;
     if (r.call) line += ` — ${r.call.toUpperCase()}: ${r.callReason ?? ""}`;
     else if (r.dontMake) line += ` — don't make (yet): ${r.dontMakeReason ?? ""}`;
-    if (r.missing?.length) line += ` — no signal for: ${r.missing.join(", ")}`;
+    if (r.missing?.length && !r.unranked) line += ` — no signal for: ${r.missing.join(", ")}`;
     L.push(line);
   }
   const top = pretasteTop(state);
   const p = state.practical;
-  const held = [...(state.ranking || [])].sort((a, b) => b.score - a.score).filter((r) => r.call === "hold").map((r) => r.idea);
+  const held = (state.ranking || []).filter((r) => r.call === "hold" && !r.unranked && !r.onHold).map((r) => r.idea);
   if (held.length >= 2) {
-    L.push(`Suggested first: the data cannot separate ideas ${held.join(" and ")} (scores too close).`);
-    if (p?.tieBreak) L.push(`Where to start anyway (general knowledge, not checked against data): Idea ${p.tieBreak.idea} — ${p.tieBreak.why}`);
-  } else L.push(`Suggested first: ${top ? `Idea ${top.idea}` : "none"}`);
+    L.push(`Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores within 3 points).`);
+    if (p?.tieBreak) L.push(`Where to start anyway (general knowledge, not checked against data): ${n(p.tieBreak.idea)} — ${p.tieBreak.why}`);
+  } else L.push(`Suggested first: ${top ? n(top.idea) : "none"}`);
   // Same content as the app's "Outside the data" section (screens.tsx practicalLines).
   if (p?.ideas?.length) {
     L.push("", "Outside the data (general knowledge from the model, not checked against data):");
-    for (const it of p.ideas) L.push(`- Idea ${it.idea}${it.priceFit ? ` — price: ${it.priceFit}` : ""}${it.risks.length ? ` — risks: ${it.risks.join("; ")}` : ""}`);
+    for (const it of p.ideas) L.push(`- ${n(it.idea)}${it.priceFit ? ` — price: ${it.priceFit}` : ""}${it.risks.length ? ` — risks: ${it.risks.join("; ")}` : ""}`);
   }
   // Same content as the app's "Your assumptions" section (screens.tsx summary export).
   if (state.input.ownAssumptions) {
-    L.push("", `The maker's own notes, checked against data (idea ${state.focusIdea}):`, state.input.ownAssumptions);
+    L.push("", "The maker's own notes, checked against data:", state.input.ownAssumptions);
     for (const a of state.makerAssumptionChecks ?? []) {
-      L.push(`- ${a.status}: ${a.text} ${a.reason}`);
+      L.push(`- ${a.status}${a.idea === null ? "" : ` (${n(a.idea)})`}: ${a.text} ${a.reason}`);
       if (a.signals?.length) L.push(`  signals: ${a.signals.map((s) => `${s.field} = ${s.value}`).join(", ")}`);
     }
   }
   if (state.verdicts?.length) {
-    L.push("", `Buyer assumptions for idea ${state.focusIdea}, checked against data:`);
+    L.push("", `Buyer assumptions for ${n(state.focusIdea)}, checked against data:`);
     for (const v of state.verdicts) L.push(`- ${LABELS[v.field] ?? v.field}: assumed "${v.assumed}" → ${v.verdict}: ${v.reason}`);
   }
   if (state.resolved?.length) {
-    L.push("", "Comparables: " + state.resolved.map((c) => `${c.resolvedName ?? c.name} (idea ${c.idea}${c.entityId ? "" : ", not found"})`).join(", "));
+    L.push("", "Comparables: " + state.resolved.map((c) => `${c.resolvedName ?? c.name} (${n(c.idea)}${c.entityId ? "" : ", not found"})`).join(", "));
   }
   const g = state.groundedListing;
-  if (g) L.push("", `Listing for idea ${state.focusIdea}:`, `Title: ${g.title}`, `Tags: ${g.tags.join(", ")}`, `Description: ${g.description}`, `Cover: ${g.coverDirection}`);
+  if (g) L.push("", `Listing for ${n(state.focusIdea)}:`, `Title: ${g.title}`, `Tags: ${g.tags.join(", ")}`, `Description: ${g.description}`, `Cover: ${g.coverDirection}`);
   if (state.errors?.length) L.push("", "Problems during the run: " + state.errors.map((e) => `step ${e.step}: ${e.message}`).join("; "));
   return mask(L.join("\n"));
 }
@@ -606,7 +675,7 @@ async function main() {
   const only = flag("--only")?.split(",");
   const reuse = flag("--summary") || flag("--resume");
   const set = (reuse && readJson(join(resolve(reuse), "meta.json"))?.set) || flag("--set") || "dev";
-  if (!SETS[set]) throw new Error(`unknown --set ${set} (dev, holdout, fresh or cases)`);
+  if (!SETS[set]) throw new Error(`unknown --set ${set} (dev, holdout, fresh, fresh2 or cases)`);
   const inputs = SETS[set].filter((x) => !only || only.includes(x.id));
   const tasks = inputs.flatMap((x) => Array.from({ length: x.reps }, (_, rep) => ({ x, rep })));
 

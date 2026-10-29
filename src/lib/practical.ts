@@ -47,7 +47,8 @@ export function joinRisks(risks: string[]): string {
 
 /** Ideas the rules held as too close to call, best first. */
 export function heldTop(ranking: IdeaScore[]): number[] {
-  return [...ranking].sort((a, b) => b.score - a.score).filter((r) => r.call === "hold").map((r) => r.idea);
+  // Only ideas held because their scores are too close; an idea held for missing evidence is not part of a tie.
+  return [...ranking].sort((a, b) => b.score - a.score).filter((r) => r.call === "hold" && !r.unranked && !r.onHold).map((r) => r.idea);
 }
 
 export function checkPractical(

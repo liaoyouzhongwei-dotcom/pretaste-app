@@ -287,7 +287,12 @@ export async function step0Blind(
           "Use US states and the allowed age bands. Separately, split Maker's own notes into atomic assertions in " +
           "makerAssumptions; keep each assertion's text an EXACT substring of the notes. Never replace a maker assertion " +
           "with your own guess. Split age and gender even when in one sentence; preserve price, timing, saturation and " +
-          "other unsupported beliefs as field other. Use idea null for general notes, or the explicit zero-based idea. " +
+          "other unsupported beliefs as field other. Plain words count as stated demographics: teen, teenage, kids, students " +
+          "or young people = 24_and_younger; girls, women, moms or ladies = female; boys, men or dads = male; retirees or " +
+          "seniors = 55_and_older. A phrase such as 'teenage girls' or 'men over 55' states both, so emit one age and one " +
+          "gender assertion with the same exact text. Use the zero-based idea when the note is about one idea's product " +
+          "(it names that product or its subject, e.g. 'golf log books' for a golf scorecard idea); idea null only for " +
+          "notes about all the ideas. " +
           "values: allowed age bands, male/female/neutral, full US state names, exact liked titles, rising/flat/falling, " +
           "or empty for other. Do not infer demographics the maker did not state. " +
           "Use the current server date; avoid expired listing years and consider remaining seasonal lead time. " +
@@ -380,6 +385,52 @@ export async function rephraseQuery(name: string, kind: ComparableKind): Promise
       return parsed.success ? parsed.data.query : null;
     },
     () => offlineRephrase(name),
+    "rules",
+  );
+}
+
+/** Replacement titles kept: only for the ideas asked about, never one already tried, at most 2 per idea. */
+export function pickReplacements(found: Comparable[], missing: { idea: number; tried: string[] }[]): Comparable[] {
+  const want = new Map(missing.map((m) => [m.idea, new Set(m.tried.map((t) => t.toLowerCase()))]));
+  const per = new Map<number, number>();
+  return found
+    .map((x) => ({ ...x, name: x.name.trim() }))
+    .filter((x) => {
+      const tried = want.get(x.idea);
+      if (!x.name || !tried || tried.has(x.name.toLowerCase()) || (per.get(x.idea) ?? 0) >= 2) return false;
+      tried.add(x.name.toLowerCase());
+      per.set(x.idea, (per.get(x.idea) ?? 0) + 1);
+      return true;
+    })
+    .slice(0, 6);
+}
+
+/** Step 2 helper: when too few of an idea's comparables were found, ask once for other well-known titles.
+ *  Offline there is no replacement, so the idea stays not ranked. */
+export async function replaceComparables(
+  input: ProductInput,
+  missing: { idea: number; notFound: string[]; tried: string[] }[],
+): Promise<LlmResult<Comparable[]>> {
+  return withFallback(
+    async (c) => {
+      const out = await callStructured(c, {
+        model: MODELS.planner,
+        schema: Step1Schema,
+        effort: "low",
+        maxTokens: 800,
+        system:
+          "An entity search could not find some comparables. For each idea listed, give up to 2 other real, widely known " +
+          "works or brands (bestselling books, hit films or TV shows, popular podcasts, artists or major brands) whose fans " +
+          "would plausibly buy that idea. Use the exact official title. Do not repeat any title already tried. " +
+          "Return candidateTags as an empty list.",
+        user: [
+          describeInput(input),
+          ...missing.map((m) => `Idea ${m.idea}: not found ${JSON.stringify(m.notFound)}; already tried ${JSON.stringify(m.tried)}`),
+        ].join("\n"),
+      });
+      return out ? pickReplacements(out.comparables, missing) : null;
+    },
+    () => [],
     "rules",
   );
 }
@@ -498,7 +549,12 @@ export async function step10Grounded(
           "Rewrite so the change is visible beyond the title: where a guess was challenged, the tags and the description " +
           "must speak to the audience Qloo found instead, and use the 'taste tag' and 'also liked' evidence (what the fans " +
           "of the comparables also like across books, film, TV and more) to choose the mood words and search tags, translated " +
-          "into generic words a buyer would type. Keep at most 2 tags from the blind listing. " +
+          "into generic words a buyer would type. Use a taste tag only when it can describe this kind of product to its " +
+          "buyer (a music or film style such as 'lyric driven' or 'darkly comedic' does not describe a sticker or a log " +
+          "book unless reworded into a look the product can have); skip tags that do not fit. Keep the blind listing's " +
+          "plain product search terms (what the item is and who uses it); replace its mood and audience words that the data " +
+          "challenged. Never put the audience's gender or age band in the title or tags. The description must say " +
+          "concretely what the buyer gets, using only what the maker wrote about the product. " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
           "wording if dates are not supplied. Do not put trademarks, named brands, franchises, comparable titles or their " +
           "abbreviations in title, tags or description. Evidence names are for analysis only. Use generic product terms. " +

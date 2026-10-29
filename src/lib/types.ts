@@ -99,6 +99,8 @@ export interface ResolvedComparable extends Comparable {
    * "unprocessed" = never asked because Qloo stopped earlier. Missing on older runs = checked.
    */
   status?: ComparableStatus;
+  /** true when the agent added it because too few of the idea's first comparables were found. */
+  replacement?: boolean;
 }
 
 export type ComparableStatus = "found" | "not_found" | "failed" | "unprocessed";
@@ -249,7 +251,7 @@ export const FOCUS_IDEA = 0;
 
 export interface AgentDecision {
   step: number;
-  kind: "rephrase" | "extra_compare" | "extra_query" | "skip";
+  kind: "rephrase" | "replace" | "extra_compare" | "extra_query" | "skip";
   detail: string;
 }
 
@@ -292,6 +294,9 @@ export interface RunState {
   coverageIncomplete?: boolean;
   /** Queued in step 3, queried in step 7 for the selected focus idea. */
   demographics?: DemographicSkew | null;
+  /** Step 7: age and gender of another idea's comparables, fetched only when the maker's own notes make an age or
+   *  gender claim about that idea. */
+  makerDemographics?: { idea: number; skew: DemographicSkew }[];
   /** Selected from step 4's per-idea neighbours in step 7. */
   neighbors?: NeighborEntity[];
   /** step 4: every idea's own neighbours (for the ranking) */

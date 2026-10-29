@@ -17,10 +17,10 @@ import { checkClaims, checkListing, type CallRecord } from "./claims";
 import { MODELS, qlooMode } from "./config";
 import { buildCommit } from "./build-info";
 import { checkPractical } from "./practical";
-import { buildEvidence, step0Blind, step10Grounded, step1Comparables, rephraseQuery, type LlmResult } from "./llm/tasks";
+import { buildEvidence, step0Blind, step10Grounded, step1Comparables, rephraseQuery, replaceComparables, type LlmResult } from "./llm/tasks";
 import { compareGroups, demographics, heatmap, tasteTags, styleTagNamed, sameTagName, TAG_PAGE, isFiniteNumber, KIND_TO_URN, neighbors, sameEntityName, searchEntity, trending } from "./qloo/endpoints";
 import { describeQlooError, QlooError, TRENDING_TYPES, type QlooEntityType } from "./qloo/types";
-import { challengedLooks, computeVerdicts, dropChallengedTags, dropOwnSeries, likeCandidates, rankIdeas } from "./rules";
+import { challengedLooks, computeVerdicts, dropChallengedTags, dropOwnSeries, likeCandidates, rankIdeas, THRESHOLDS } from "./rules";
 import { FOCUS_IDEA, type AestheticCheck, type ComparableKind, type NeighborEntity, type StyleRanking, type ProductInput, type ResolvedComparable, type RunState, type Source } from "./types";
 
 export const LAST_STEP = 10;
@@ -197,6 +197,30 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
           });
         }
       });
+      // Agent decision: an idea with too few comparables found gets one round of other titles. The ones not found
+      // stay listed and still count in the share, so a replacement can only add evidence, never hide a miss.
+      if (resolved.length === state.comparables.length) {
+        const short = state.input.ideas.map((_, idea) => {
+          const mine = resolved.filter((r) => r.idea === idea);
+          const found = mine.filter((r) => r.entityId).length;
+          return { idea, notFound: mine.filter((r) => !r.entityId).map((r) => r.name), tried: mine.map((r) => r.name), short: mine.length > 0 && found / mine.length < THRESHOLDS.minFoundRatio };
+        }).filter((x) => x.short);
+        if (short.length) {
+          const extra = (await replaceComparables(state.input, short)).value;
+          if (extra.length) {
+            state.decisions.push({ step: 2, kind: "replace", detail: `too few comparables found for idea(s) ${short.map((s) => s.idea + 1).join(", ")}; searched ${extra.length} other title(s): ${extra.map((x) => `"${x.name}"`).join(", ")}` });
+            state.comparables = [...state.comparables, ...extra];
+            await runQloo(state, 2, async () => {
+              for (const c of extra) {
+                const { entity, record } = await searchEntity(c.name, c.kind, 2);
+                calls(record);
+                resolved.push({ ...c, entityId: entity?.entity_id ?? null, resolvedName: entity?.name ?? null, rephrased: false,
+                  callId: entity ? record.callId : null, status: entity ? "found" : "not_found", replacement: true });
+              }
+            });
+          }
+        }
+      }
       // If Qloo stopped partway (429, network...), keep every planned comparable in the list:
       // the one it stopped on is "failed", the rest "unprocessed". Coverage keeps the planned
       // count as its denominator, so 1 found out of 3 planned never reads as 100%.
@@ -345,6 +369,22 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
           if (d) {
             calls(d.record);
             state.demographics = { age: d.age, gender: d.gender, callId: d.record.callId, perEntity: d.perEntity };
+          }
+        });
+      }
+      // A maker's age or gender note about another idea is checked against that idea's own comparables.
+      state.makerDemographics = [];
+      const noteIdeas = [...new Set((state.makerAssumptions ?? [])
+        .filter((a) => (a.field === "age" || a.field === "gender") && a.idea !== null && a.idea !== state.focusIdea)
+        .map((a) => a.idea as number))];
+      for (const idea of noteIdeas) {
+        const noteIds = foundIds(state, idea);
+        if (noteIds.length === 0) continue;
+        await runQloo(state, 3, async () => {
+          const d = await demographics(noteIds, 3);
+          if (d) {
+            calls(d.record);
+            state.makerDemographics!.push({ idea, skew: { age: d.age, gender: d.gender, callId: d.record.callId, perEntity: d.perEntity } });
           }
         });
       }
