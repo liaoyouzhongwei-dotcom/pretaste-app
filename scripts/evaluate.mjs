@@ -569,7 +569,48 @@ const FRESH7_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, fresh6: FRESH6_INPUTS, fresh7: FRESH7_INPUTS, cases: CASE_INPUTS };
+// Eighth fresh set (--set fresh8, sealed 2026-10-29 night, before any run): scoped to where Qloo's graph is
+// strongest. Every idea is a product whose buyers are defined by fans of popular entertainment that Qloo
+// covers directly (movies, TV shows, anime, artists, video games, podcasts), instead of niche hobbies.
+// Same three measures and the same judge prompts as the earlier sets; run once on the current production
+// version and reported whatever the result. Not edited after the sealing commit.
+const FRESH8_INPUTS = [
+  {
+    id: "e-horror",
+    input: { ideas: ["Horror movie watch log journal", "Slasher film trivia card deck"], marketplace: "kdp", priceUsd: 8.99, ownAssumptions: "Horror movie journals are bought mostly by women over 65." },
+    planted: { fact: "Horror film fans skew under 45; adults over 65 are the smallest share of horror audiences." },
+    reps: 1,
+  },
+  {
+    id: "e-anime",
+    input: { ideas: ["Anime watch tracker journal", "Fantasy anime-style coloring book"], marketplace: "kdp", priceUsd: 7.99, ownAssumptions: "Anime watch journals sell mostly to men over 60." },
+    planted: { fact: "Anime fans in the US skew young, mostly under 35; men over 60 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "e-truecrime",
+    input: { ideas: ["True crime podcast listener journal", "True crime case file notebook"], marketplace: "etsy", priceUsd: 6, ownAssumptions: "True crime journals sell mostly to men over 55." },
+    planted: { fact: "True crime podcast audiences skew female and mostly 25 to 44; men over 55 are a small share." },
+    reps: 1,
+  },
+  {
+    id: "e-kdrama",
+    input: { ideas: ["K-drama watch journal", "Korean drama quote coloring book"], marketplace: "kdp", priceUsd: 8.99 },
+    reps: 3,
+  },
+  {
+    id: "e-vinyl",
+    input: { ideas: ["Vinyl record collection log book", "Classic rock concert memories journal"], marketplace: "etsy", priceUsd: 7 },
+    reps: 1,
+  },
+  {
+    id: "e-retrogame",
+    input: { ideas: ["Retro video game collection tracker", "Speedrun practice log"], marketplace: "kdp", priceUsd: 6.99 },
+    reps: 1,
+  },
+];
+
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, fresh6: FRESH6_INPUTS, fresh7: FRESH7_INPUTS, fresh8: FRESH8_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
