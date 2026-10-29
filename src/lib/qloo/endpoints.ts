@@ -66,9 +66,15 @@ export async function searchEntity(
   const candidates = exact.length ? exact : aliases.length ? aliases : seriesFirst.length ? seriesFirst : subtitled;
   const unique = [...new Map(candidates.map((e) => [e.entity_id, e])).values()];
   // Records that differ only in how the series label is written are one book listed twice; any
-  // other duplicate name stays ambiguous.
-  const match = unique.length === 1 || (tier === "series" && unique.length > 1) ? unique[0] : null;
-  if (match && tier === "series") {
+  // Other duplicates stay ambiguous unless one record is clearly the famous one (a remake or a
+  // low-signal duplicate listing): its popularity must lead the next record by POPULARITY_LEAD.
+  const byPop = [...unique].sort((x, y) => (y.popularity ?? 0) - (x.popularity ?? 0));
+  const lead = unique.length > 1 ? (byPop[0].popularity ?? 0) - (byPop[1].popularity ?? 0) : 0;
+  const popular = tier !== "series" && unique.length > 1 && lead >= POPULARITY_LEAD ? byPop[0] : null;
+  const match = unique.length === 1 || (tier === "series" && unique.length > 1) ? unique[0] : popular;
+  if (popular) {
+    record.warnings.push(`picked the clearly most popular of ${unique.length} records named like "${query}": "${popular.name}" (${popular.entity_id}), popularity ${r2(popular.popularity ?? 0)} vs next ${r2(byPop[1].popularity ?? 0)}`);
+  } else if (match && tier === "series") {
     record.warnings.push(`verified first book of a series for "${query}": "${match.name}" (${match.entity_id})${unique.length > 1 ? `; ${unique.length - 1} more record(s) with the same title and #1 label not used` : ""}`);
   } else if (match && tier === "subtitle") {
     record.warnings.push(`verified title with subtitle for "${query}": "${match.name}" (${match.entity_id}); the subtitle has no sequel marker`);
@@ -262,6 +268,10 @@ function nameKey(s: string): string {
 }
 
 /** "Title (Series, #1)" -> "Title". Other volumes (#2, #1-4, #1.5) are not the same work. */
+/** How far the most popular same-named record must lead the next one to be taken as the work meant. */
+export const POPULARITY_LEAD = 0.2;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 function firstOfSeries(name: string): string | null {
   const m = name.match(/^(.+?)\s*\(([^()]*?),?\s*#\s*1\)\s*$/);
   return m ? m[1] : null;

@@ -65,12 +65,12 @@ test("listing prices require the maker's price while sizes, volumes and page cou
   assert.equal(checkListing({ ...listing, description: "Only $4.99." }, [], "etsy").description, "");
 });
 
-async function search(query: string, names: string[], kind: "book" | "movie" = "book") {
+async function search(query: string, names: string[], kind: "book" | "movie" = "book", pops: (number | undefined)[] = []) {
   const savedMode = process.env.QLOO_MODE;
   const savedKey = process.env.QLOO_API_KEY;
   delete process.env.QLOO_MODE;
   process.env.QLOO_API_KEY = "SYN-test";
-  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ results: names.map((name, i) => ({ name, entity_id: `SYN-${i}`, types: [`urn:entity:${kind}`] })) }), { status: 200 }));
+  mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ results: names.map((name, i) => ({ name, entity_id: `SYN-${i}`, types: [`urn:entity:${kind}`], popularity: pops[i] })) }), { status: 200 }));
   try { return await searchEntity(query, kind, 2); }
   finally {
     if (savedMode === undefined) delete process.env.QLOO_MODE; else process.env.QLOO_MODE = savedMode;
@@ -101,6 +101,14 @@ test("search accepts the first book of a labelled series and a non-sequel subtit
   for (const [i, tail] of ["The Movie", "Season 2", "Mirror Arc", "Part II"].entries())
     assert.equal((await search(`Synthetic Sword ${i}`, [`Synthetic Sword ${i}: ${tail}`], "movie")).entity, null, tail);
   assert.equal((await search("Synthetic Shield", ["Synthetic Shield: Alpha", "Synthetic Shield: Beta"], "movie")).entity, null, "two subtitles stay ambiguous");
+});
+
+test("same-named records resolve only when one is clearly the most popular", async () => {
+  const remake = await search("Synthetic Broom", ["Synthetic Broom", "Synthetic Broom"], "movie", [0.55, 0.99]);
+  assert.equal(remake.entity?.entity_id, "SYN-1");
+  assert.ok(remake.record.warnings.some((w) => w.includes("clearly most popular of 2") && w.includes("0.99 vs next 0.55")));
+  assert.equal((await search("Synthetic Fan", ["Synthetic Fan", "Synthetic Fan", "Synthetic Fan"], "book", [0.99, 0.98, undefined])).entity, null, "close popularity stays ambiguous");
+  assert.equal((await search("Synthetic Kite", ["Synthetic Kite", "Synthetic Kite"], "book")).entity, null, "no popularity stays ambiguous");
 });
 
 test("an interrupted comparative signal holds every idea instead of penalizing the later query", () => {
