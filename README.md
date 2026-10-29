@@ -87,7 +87,7 @@ Pretaste runs end to end with no keys at all.
 
 1. **Assumptions** — checkable findings first; assumptions the data cannot establish remain visibly separate.
 2. **Before & after** — drafts for the same product, with a "Qloo off" comparison and the claims behind the rewrite.
-3. **Ideas ranked** — research priority from a fixed formula (affinity, trend, found, overlap), with coverage and the calculation available to inspect. The first card says in how many nearby weightings (each weight moved by 0.1) it stays first. This is not a probability of success.
+3. **Ideas ranked** — research priority from a fixed formula, (0.4·affinity + 0.3·trend) ÷ 0.7 − 0.2·tag similarity (affinity − 0.2·tag similarity when no idea has trend data), with the calculation available to inspect. An idea is ranked only when at least half of its planned comparables were found; that share is a gate, not part of the score. The first card says in how many nearby weightings (each weight moved by 0.1) it stays first. This is not a probability of success.
 4. **Audience** — cultural neighbours, relative age and gender skew, approximate US regional affinity, and creative direction labelled as interpretation. These are signals from the comparables, not measured customers of the proposed product.
 5. **Evidence** — links open the matching recorded call, with claim checks, agent decisions and technical details available on demand.
 

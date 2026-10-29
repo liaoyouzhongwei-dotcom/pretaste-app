@@ -35,7 +35,7 @@ Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`):
 }
 ```
 
-A run takes about 40 seconds. The server sends a `notifications/progress` after each step when the client passes a `progressToken`. If your client times out tool calls sooner, raise its limit (Claude Code: `MCP_TOOL_TIMEOUT=120000`).
+A run takes about 40 to 60 seconds. The server sends a `notifications/progress` after each step when the client passes a `progressToken`. If your client times out tool calls sooner, raise its limit (Claude Code: `MCP_TOOL_TIMEOUT=120000`).
 
 ## Tool `pretaste_check`
 
