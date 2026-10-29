@@ -473,3 +473,5 @@ ol.note-list { list-style:decimal; }
   .result-tabs button { padding:0 12px; }
 }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+.summary-from { margin-top:8px; font-size:15px; color:var(--on-dark-muted); max-width:760px; }
+.summary-from strong { color:var(--on-dark); font-weight:500; }

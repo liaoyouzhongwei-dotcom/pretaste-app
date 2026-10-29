@@ -7,7 +7,7 @@ import * as clock from "./date";
 import * as client from "./llm/client";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
 import { checkListingNames, listingNames } from "./listing-names";
-import { challengedLooks, computeVerdicts, dropChallengedTags, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
+import { challengedLooks, computeVerdicts, dropChallengedTags, dropOwnSeries, seriesOf, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
 import { checkMakerAssumptions, preserveMakerNotes } from "./maker-assumptions";
 import { checkClaims } from "./claims";
 import { checkPractical, joinRisks } from "./practical";
@@ -953,4 +953,24 @@ test("search tags that repeat a look Qloo challenged are dropped from the After 
   assert.deepEqual(r.tags, ["contemplative coloring", "japan coloring book", "cozyish"]);
   assert.equal(r.notes.length, 2);
   assert.deepEqual(challengedLooks(null), []);
+});
+
+test("neighbors that are another entry of a comparable's own series are left out", () => {
+  assert.equal(seriesOf("Lantern Days (The Lantern Cycle, #3)"), "the lantern cycle");
+  assert.equal(seriesOf("Lantern Days"), null);
+  const list = [
+    { name: "Lantern Nights (The Lantern Cycle, #2)", entityId: "n1" },
+    { name: "Tea at the Harbor", entityId: "n2" },
+    { name: "Quiet Street, Vol. 2 (Quiet Street, #2)", entityId: "n3" },
+    { name: "The Lantern Cycle Box", entityId: "c1" },
+    { name: "River Cats (River Cats, #1)", entityId: "n4" },
+  ];
+  const own = [
+    { name: "Lantern Days (The Lantern Cycle, #1)", entityId: "c0" },
+    { name: "Quiet Street", entityId: "c2" },
+    { name: "The Lantern Cycle Box", entityId: "c1" },
+  ];
+  const r = dropOwnSeries(list, own);
+  assert.deepEqual(r.kept.map((x) => x.entityId), ["n2", "n4"]);
+  assert.deepEqual(r.dropped.map((x) => x.entityId), ["n1", "n3", "c1"]);
 });

@@ -118,11 +118,16 @@ or durable exactly-once guarantee. A new UUID avoids matching an earlier attempt
 - Product specifications are distinct from audience measurements. Price claims must match the
   maker's input; cultural data cannot validate a price or guarantee product demand.
 
-The aesthetic guess is checked against the style and topic tags Qloo ties to fans of the
-comparables (`/v2/insights` with `filter.type=urn:tag`, two calls): at least half the guessed looks
-found is Supported, none found is Challenged, anything between is Not established. A guessed look
-matches a tag by whole words or a shared stem of 5+ letters; a one-word tag never matches a longer
-guess. Life stage is not validated: Qloo does not report it. Ideas with no taste signal at all are
+The aesthetic guess is checked one look at a time. Each guessed look is matched to a Qloo style
+tag (`/v2/tags`), then ranked among every style tag Qloo ties to fans of the comparables
+(`/v2/insights` with `filter.type=urn:tag`, 50 per page, up to 1,000 tags). A look in the strongest
+quarter counts for the guess; one in the weaker half, or missing from a complete list, counts
+against it; a look that is not a Qloo style tag is not checked. Age and gender leans are re-checked
+with each comparable left out, and a lean that rests on one comparable is Not established.
+Neighbors that are only another entry of a comparable's own series are left out. Trending covers
+artists, brands, movies, podcasts and TV shows, not books; when no idea has trend data, ideas are
+ranked on affinity alone and the screen says so. Life stage is not validated: Qloo
+does not report it. Ideas with no taste signal at all are
 held as "Not ranked" instead of receiving a low score. Regional
 labels use an approximate US map. Validate the product, creative direction and price with real
 customers before investing in production.

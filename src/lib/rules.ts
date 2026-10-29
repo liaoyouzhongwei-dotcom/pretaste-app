@@ -201,7 +201,33 @@ const meanOf = (xs: (number | undefined)[]): number | undefined => {
 const restsOnOne = (s: NonNullable<AssumptionVerdict["stability"]>) =>
   `; with "${s.dependsOn}" left out the lean no longer passes the threshold, so it rests on one comparable and is not established`;
 
-/** Each guessed look sits somewhere in the full ranked list of these fans' style tags, or is missing from it. */
+/** "Before We Say Goodbye (Before the Coffee Gets Cold, #4)" → "before the coffee gets cold". */
+export function seriesOf(name: string): string | null {
+  const m = name.match(/\(([^()]+?),\s*#\s*\d[^()]*\)\s*$/);
+  return m ? m[1].trim().toLowerCase() : null;
+}
+
+/** Another entry of a comparable's own series (or the comparable itself) says little about what else its fans like. */
+export function dropOwnSeries<T extends { name: string; entityId: string }>(
+  list: T[],
+  comparables: { name: string; entityId: string | null }[],
+): { kept: T[]; dropped: T[] } {
+  const ids = new Set(comparables.map((c) => c.entityId).filter((x): x is string => !!x));
+  const own = new Set<string>();
+  for (const c of comparables) {
+    const s = seriesOf(c.name);
+    if (s) own.add(s);
+    own.add(c.name.replace(/\s*\([^()]*\)\s*$/, "").trim().toLowerCase());
+  }
+  const kept: T[] = [];
+  const dropped: T[] = [];
+  for (const e of list) {
+    const s = seriesOf(e.name);
+    (ids.has(e.entityId) || (s !== null && own.has(s)) ? dropped : kept).push(e);
+  }
+  return { kept, dropped };
+}
+
 /** Looks Qloo challenged (in the weakest half, or missing from a complete list): guess and tag name. */
 export function challengedLooks(sr: StyleRanking | null | undefined): string[] {
   if (!sr) return [];

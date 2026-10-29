@@ -127,7 +127,8 @@ export async function neighbors(
       "filter.type": filterType,
       "signal.interests.entities": entityIds.join(","),
       "feature.explainability": "true",
-      take: "10",
+      // 15, so that 10 remain after other entries of a comparable's own series are left out.
+      take: "15",
       // Keep results away from pure mass-market items. [threshold to tune with live data]
       "filter.popularity.max": "0.98",
     },

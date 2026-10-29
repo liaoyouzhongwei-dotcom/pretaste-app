@@ -47,6 +47,7 @@
  *   node scripts/evaluate.mjs --summary .cache/eval/20261022-0650   # recount only, calls nothing
  *   node scripts/evaluate.mjs --dry               # print the plan, call nothing
  *   node scripts/evaluate.mjs --set holdout       # the sealed holdout set (once)
+ *   node scripts/evaluate.mjs --set fresh         # the sealed fresh set on the current version (once)
  *   node scripts/evaluate.mjs --set cases --only C1  # our own decision cases: one run per side, no score
  */
 import { execFileSync, spawn } from "node:child_process";
@@ -200,6 +201,71 @@ const HOLDOUT_INPUTS = [
   },
 ];
 
+// Fresh set (--set fresh, sealed 2026-10-29): written before the run on the current version, never used to
+// tune, reported as-is. 6 inputs: 3 planted errors, 1 stability (3 runs), 2 preference only = 8 runs per side.
+const FRESH_INPUTS = [
+  {
+    id: "f-golf",
+    input: {
+      ideas: ["Golf course scorecard and stats log book", "Fly fishing trip journal"],
+      marketplace: "kdp",
+      priceUsd: 9.99,
+      ownAssumptions: "Golf log books are bought mostly by teenage girls.",
+    },
+    planted: { fact: "Golf players and buyers of golf log books skew heavily male and older (about 40+); teenage girls are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "f-kpop",
+    input: {
+      ideas: ["K-pop photocard binder stickers", "K-pop concert countdown printable"],
+      marketplace: "etsy",
+      priceUsd: 6,
+      ownAssumptions: "K-pop fan merchandise is bought mostly by men over 55.",
+    },
+    planted: { fact: "K-pop fan merchandise buyers skew young and female (teens to early 30s); men over 55 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "f-true-crime",
+    input: {
+      ideas: ["True crime podcast fan sticker pack", "Murder mystery party game kit (printable)"],
+      marketplace: "etsy",
+      priceUsd: 8,
+      ownAssumptions: "True crime fans are overwhelmingly men.",
+    },
+    planted: { fact: "True crime audiences (podcasts, books, documentaries) skew female; most surveys put women at well over half." },
+    reps: 1,
+  },
+  {
+    id: "f-teacher",
+    input: {
+      ideas: ["Teacher lesson planner 2027", "Classroom reward coupon printables", "Back-to-school bulletin board kit"],
+      marketplace: "etsy",
+      priceUsd: 10,
+    },
+    reps: 3,
+  },
+  {
+    id: "f-cocktail",
+    input: {
+      ideas: ["Home cocktail recipe journal", "Wine tasting notes log book"],
+      marketplace: "kdp",
+      priceUsd: 8.99,
+    },
+    reps: 1,
+  },
+  {
+    id: "f-birdwatch",
+    input: {
+      ideas: ["Backyard bird watching log book", "Nature journal for kids ages 6-10"],
+      marketplace: "kdp",
+      priceUsd: 7.99,
+    },
+    reps: 1,
+  },
+];
+
 // Our own decisions (plan §5, docs/cases/C1-C3.md): one run per side, saved for the case record.
 // No judge and no score: the "after" is written by the decision owner from these outputs.
 const CASE_INPUTS = [
@@ -251,7 +317,7 @@ const CASE_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, cases: CASE_INPUTS };
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
@@ -540,7 +606,7 @@ async function main() {
   const only = flag("--only")?.split(",");
   const reuse = flag("--summary") || flag("--resume");
   const set = (reuse && readJson(join(resolve(reuse), "meta.json"))?.set) || flag("--set") || "dev";
-  if (!SETS[set]) throw new Error(`unknown --set ${set} (dev, holdout or cases)`);
+  if (!SETS[set]) throw new Error(`unknown --set ${set} (dev, holdout, fresh or cases)`);
   const inputs = SETS[set].filter((x) => !only || only.includes(x.id));
   const tasks = inputs.flatMap((x) => Array.from({ length: x.reps }, (_, rep) => ({ x, rep })));
 

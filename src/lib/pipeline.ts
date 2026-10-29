@@ -20,7 +20,7 @@ import { checkPractical } from "./practical";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables, rephraseQuery, type LlmResult } from "./llm/tasks";
 import { compareGroups, demographics, heatmap, tasteTags, styleTagNamed, sameTagName, TAG_PAGE, isFiniteNumber, KIND_TO_URN, neighbors, sameEntityName, searchEntity, trending } from "./qloo/endpoints";
 import { describeQlooError, QlooError, TRENDING_TYPES, type QlooEntityType } from "./qloo/types";
-import { challengedLooks, computeVerdicts, dropChallengedTags, likeCandidates, rankIdeas } from "./rules";
+import { challengedLooks, computeVerdicts, dropChallengedTags, dropOwnSeries, likeCandidates, rankIdeas } from "./rules";
 import { FOCUS_IDEA, type AestheticCheck, type ComparableKind, type NeighborEntity, type StyleRanking, type ProductInput, type ResolvedComparable, type RunState, type Source } from "./types";
 
 export const LAST_STEP = 10;
@@ -249,7 +249,7 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
               detail: `idea ${idea + 1}: ignored ${entities.length - usable.length} of ${entities.length} neighbour(s) with no affinity score (${record.callId})`,
             });
           }
-          const list: NeighborEntity[] = usable
+          const all: NeighborEntity[] = usable
             .map((e) => ({
               entityId: e.entity_id!,
               name: e.name!,
@@ -261,6 +261,18 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
                 .filter((x): x is string => !!x),
               callId: record.callId,
             }));
+          const own = (state.resolved ?? [])
+            .filter((r) => r.idea === idea && r.entityId)
+            .map((r) => ({ name: r.resolvedName ?? r.name, entityId: r.entityId }));
+          const series = dropOwnSeries(all, own);
+          if (series.dropped.length) {
+            state.decisions.push({
+              step: 4,
+              kind: "skip",
+              detail: `idea ${idea + 1}: left out ${series.dropped.length} neighbor(s) that are another entry of a comparable's own series (${series.dropped.map((d) => d.name).join("; ")})`,
+            });
+          }
+          const list = series.kept.slice(0, 10);
           state.ideaNeighbors!.push({ idea, neighbors: list, returned: entities.length });
           if (idea === state.focusIdea) state.neighbors = list;
         }
