@@ -125,16 +125,18 @@ export function changeSummary(run: RunState) {
 function firstEvidence(run: RunState, v?: AssumptionVerdict) {
   return v?.claims.filter(c => c.kind === "qloo").flatMap(c => c.evidence).find(e => run.calls.some(c => c.callId === e.callId));
 }
+// Small words are never highlighted on their own.
+const MINOR = new Set(["a", "an", "the", "of", "in", "on", "for", "and", "to", "with", "at", "by", "from"]);
 /** Display only: words in the after title that the before title does not use. */
 function MarkedTitle({ before, after }: { before: string; after: string }) {
-  const key = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const key = (w: string) => { const k = w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""); return k.length > 3 && k.endsWith("s") && !k.endsWith("ss") ? k.slice(0, -1) : k; };
   const seen = new Set(before.split(/\s+/).map(key).filter(Boolean));
   // Consecutive new words share one highlight.
   const out: ReactNode[] = []; let run: string[] = [];
   const flush = () => { if (!run.length) return; const ws = run[run.length - 1].trim() ? "" : run.pop()!; out.push(<mark key={out.length}>{run.join("")}</mark>); if (ws) out.push(ws); run = []; };
   for (const w of after.split(/(\s+)/)) {
     if (!w.trim()) { if (run.length) run.push(w); else out.push(w); }
-    else if (key(w) && !seen.has(key(w))) run.push(w);
+    else if (key(w) && !seen.has(key(w)) && !MINOR.has(key(w))) run.push(w);
     else { flush(); out.push(w); }
   }
   flush();
@@ -218,7 +220,7 @@ export function ReceiptsScreen({ run }: { run: RunState }) {
   const qloo = all.filter(x => x.c.kind === "qloo").length, cached = run.calls.filter(c=>c.cached).length;
   return <section className="screen"><ScreenHead title="Every claim, with the call behind it">Inspect the recorded calls behind each claim. Evidence links throughout the report open the matching call below.</ScreenHead><dl className="stat-row">{[{ n:qloo, label:"Recorded claims" },{ n:all.length-qloo,label:"Interpretations" },{n:run.calls.length,label:"API calls"}].map(x=><div key={x.label}><dt>{x.label}</dt><dd>{x.n}</dd></div>)}</dl>
     {run.checker && <details className="p-panel p-detail"><summary>Claim quality checks <span className="p-muted">· {run.checker.downgraded} downgraded / {run.checker.dropped} removed / {run.checker.listingFixes ?? 0} copy fixes</span></summary><p className="p-muted small">Measured claims must cite a recorded value and identify its subject. Unsupported claims become interpretation; unbacked numbers are removed. Marketplace tag limits and listing measurements are checked too.</p><ul className="note-list">{run.checker.notes.map((n,i)=><li key={i}>{n}</li>)}</ul></details>}
-    <details className="p-panel p-detail"><summary>Claims and their sources <span className="p-muted">· {all.length}</span></summary><ul className="claims-by-source">{all.map(({c,where},i)=><li key={`${where}-${c.id}-${i}`}><p className="card-meta">{where}</p><Claims claims={[c]} /></li>)}</ul></details>
+    <details className="p-panel p-detail"><summary>Claims and their sources <span className="p-muted">· {qloo} recorded{all.length - qloo > 0 ? ` + ${all.length - qloo} ${all.length - qloo === 1 ? "interpretation" : "interpretations"}` : ""}</span></summary><ul className="claims-by-source">{all.map(({c,where},i)=><li key={`${where}-${c.id}-${i}`}><p className="card-meta">{where}</p><Claims claims={[c]} /></li>)}</ul></details>
     <div className="p-panel"><h3>Recorded calls <span className="p-muted">· {cached} from cache</span></h3><p className="p-muted small">Parameters are redacted. Expand a call to inspect its request metadata.</p><div className="call-list">{run.calls.map(c=>{ const bad = c.status === "error" || (typeof c.status === "number" && c.status >= 400); return <details id={`call-${c.callId}`} tabIndex={-1} key={c.callId} className="call-row"><summary><span className="call-id">{c.callId}</span><span className="call-path">{c.path}</span><span className={`call-status ${bad ? "is-bad" : ""}`}>{c.status === "cache" ? "cached" : <>{c.status}{c.cached ? " · cached" : ""}</>} · {number(c.durationMs,0)} ms</span></summary><dl className="call-meta"><div><dt>Pipeline step / source</dt><dd>{c.step} / {c.source}</dd></div><div><dt>Request parameters (redacted)</dt><dd className="code-block">{JSON.stringify(c.params,null,2)}</dd></div>{!!c.warnings.length && <div><dt className="warn-text">Warnings</dt><dd>{c.warnings.join("; ")}</dd></div>}</dl></details>; })}</div></div>
     {!!run.decisions.length && <details className="p-panel p-detail"><summary>Agent decisions <span className="p-muted">· {run.decisions.length}</span></summary><ol className="note-list">{run.decisions.map((d,i)=><li key={i}><strong>Step {d.step} · {d.kind.replaceAll("_"," ")}</strong><p className="p-muted">{d.detail}</p></li>)}</ol></details>}
   </section>;

@@ -127,10 +127,10 @@ export default function PretasteApp() {
 
   return <div className="app-shell">
     <a className="skip-link" href="#workspace">Skip to idea checker</a>
-    <header className="site-header"><a className="brand" href="#" aria-label="Pretaste home" translate="no"><TasteMark /><span>Pretaste</span></a><nav className="header-nav" aria-label="Page"><a href="#how-it-works">How it works</a><a href="#workspace" className="header-cta">Run a sample check</a></nav></header>
+    <header className="site-header"><a className="brand" href="#" aria-label="Pretaste home" translate="no"><TasteMark /><span>Pretaste</span></a><nav className="header-nav" aria-label="Page"><a href="#how-it-works">How it works</a><a href="#workspace" className="header-cta">Try it</a></nav></header>
     <main>
       <section className={`hero ${run || busy ? "hero-compact" : ""}`} aria-labelledby="hero-title">
-        <div className="hero-copy"><h1 id="hero-title">Your AI guessed who buys it. <span><mark>Qloo checks the guess.</mark></span></h1><p className="hero-description">Pretaste asks an LLM who your product idea is for, then tests each guess against <span translate="no">Qloo</span>’s taste data on people who love comparable titles and brands. Keep what the evidence supports. Rethink the rest.</p><div className="hero-actions"><a href="#workspace" className="button-primary">Run a sample check <Icon name="arrow" /></a><span className="hero-note">No sign-up · up to 3 ideas per check</span></div></div>
+        <div className="hero-copy"><h1 id="hero-title">Your AI guessed who buys it. <span><mark>Qloo checks the guess.</mark></span></h1><p className="hero-description">Pretaste asks an LLM who your product idea is for, then tests each guess against <span translate="no">Qloo</span>’s taste data on people who love comparable titles and brands — data an LLM can’t see. Keep what the evidence supports. Rethink the rest.</p><div className="hero-actions"><a href="#workspace" className="button-primary">Run a sample check <Icon name="arrow" /></a><span className="hero-note">No sign-up · up to 3 ideas per check</span></div></div>
         <figure className="specimen" aria-label="Illustration of one Pretaste finding, with made-up values">
           <figcaption className="specimen-head"><span>One finding, illustrated</span></figcaption>
           <p className="specimen-product">Idea: a houseplant care journal</p>
@@ -183,7 +183,7 @@ export default function PretasteApp() {
 const SPECIMEN = [
   { field: "Gender", guess: "Mostly women", signal: -0.6, read: "Leans toward men", verdict: "refuted" },
   { field: "Age", guess: "25 to 34", signal: 0.45, read: "Leans 25–34", verdict: "supported" },
-  { field: "Also likes", guess: "Plant-care podcasts", signal: null, read: "Not in top neighbors. Top: slow-living films, ceramics", verdict: "unverifiable" },
+  { field: "Also likes", guess: "Plant-care podcasts", signal: null, read: "Not among the top neighbors, so left open", verdict: "unverifiable" },
 ] as const;
 const HOW = [
   { title: "The LLM guesses", text: "Drafts a listing and names the audience it imagines: age, gender, life stage, look, what else they like." },

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 export function TasteMark() {
   // A tasting spoon: try the idea before you make it.
-  return <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M17.6 17.6 27 27" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round"/><ellipse cx="11.5" cy="11.5" rx="8.6" ry="5.8" transform="rotate(45 11.5 11.5)" className="mark-bowl" stroke="currentColor" strokeWidth="2.4"/></svg>;
+  return <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M15.4 15.4 28 28" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"/><ellipse cx="10" cy="10" rx="8" ry="4.4" transform="rotate(45 10 10)" className="mark-bowl" stroke="currentColor" strokeWidth="2.2"/></svg>;
 }
 export function Icon({ name }: { name: "arrow" | "check" | "spark" | "chart" | "book" | "layers" | "close" | "download" | "chevron" | "clock" }) {
   const paths: Record<typeof name, ReactNode> = {
