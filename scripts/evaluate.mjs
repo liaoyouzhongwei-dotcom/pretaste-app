@@ -494,7 +494,44 @@ const CASE_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, cases: CASE_INPUTS };
+// Sealed sixth set: new topics, written before running it on bedb4bf.
+const FRESH6_INPUTS = [
+  {
+    id: "j-poker",
+    input: { ideas: ["Poker hand history logbook", "Home poker night score sheets"], marketplace: "kdp", priceUsd: 7.99, ownAssumptions: "Poker logbooks are bought mostly by women over 60." },
+    planted: { fact: "Poker players skew male and between 25 and 44; women over 60 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "j-cosplay",
+    input: { ideas: ["Cosplay costume build planner", "Anime convention trip checklist"], marketplace: "etsy", priceUsd: 5, ownAssumptions: "Cosplay planners sell mostly to men over 55." },
+    planted: { fact: "Cosplayers skew under 35 and many are women; men over 55 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "j-beekeep",
+    input: { ideas: ["Beehive inspection log book", "Honey harvest record book"], marketplace: "kdp", priceUsd: 8.99, ownAssumptions: "Beekeeping logs are bought mostly by teenagers." },
+    planted: { fact: "Hobby beekeepers are mostly adults over 40; teenagers are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "j-astronomy",
+    input: { ideas: ["Stargazing observation log", "Moon and planet sketch journal", "Astrophotography session planner"], marketplace: "kdp", priceUsd: 8.99 },
+    reps: 3,
+  },
+  {
+    id: "j-pickleball",
+    input: { ideas: ["Pickleball match score tracker", "Pickleball drill workbook"], marketplace: "etsy", priceUsd: 5 },
+    reps: 1,
+  },
+  {
+    id: "j-calligraphy",
+    input: { ideas: ["Modern calligraphy practice workbook", "Brush lettering alphabet sheets"], marketplace: "kdp", priceUsd: 9.99 },
+    reps: 1,
+  },
+];
+
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, fresh6: FRESH6_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
@@ -598,7 +635,7 @@ function renderPretaste(state) {
   if (named) L.push(`Suggested first: ${n(named.idea)}`);
   else {
     L.push(held.length >= 2
-      ? `Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores under 5 points apart).`
+      ? `Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores under 8 points apart).`
       : "Suggested first: the data does not name a first idea.");
     if (p?.tieBreak) L.push(`Where to start anyway (general knowledge, not checked against data): ${n(p.tieBreak.idea)} — ${p.tieBreak.why}`);
   }

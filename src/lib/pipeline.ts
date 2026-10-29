@@ -162,6 +162,9 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
       const v = applyLlm(state, 1, await step1Comparables(state));
       state.comparables = v.comparables;
       state.candidateTags = v.candidateTags;
+      for (const x of v.leftOut ?? []) {
+        state.decisions.push({ step: 1, kind: "skip", detail: `idea ${x.idea + 1}: left out "${x.name}"${x.mainTopic ? ` (mainly about ${x.mainTopic})` : ""}, not about the product's subject; its fans would describe someone else's taste` });
+      }
       return state;
     }
     case 2: {
@@ -203,7 +206,10 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         const short = state.input.ideas.map((_, idea) => {
           const mine = resolved.filter((r) => r.idea === idea);
           const found = mine.filter((r) => r.entityId).length;
-          return { idea, notFound: mine.filter((r) => !r.entityId).map((r) => r.name), tried: mine.map((r) => r.name), short: mine.length > 0 && found / mine.length < THRESHOLDS.minFoundRatio };
+          const leftOut = state.decisions.filter((d) => d.step === 1 && d.kind === "skip" && d.detail.startsWith(`idea ${idea + 1}: left out "`))
+            .map((d) => d.detail.slice(d.detail.indexOf('"') + 1, d.detail.indexOf('"', d.detail.indexOf('"') + 1)));
+          return { idea, notFound: mine.filter((r) => !r.entityId).map((r) => r.name), tried: [...mine.map((r) => r.name), ...leftOut],
+            short: mine.length === 0 ? leftOut.length > 0 : found / mine.length < THRESHOLDS.minFoundRatio };
         }).filter((x) => x.short);
         if (short.length) {
           const extra = (await replaceComparables(state.input, short)).value;

@@ -83,7 +83,10 @@ const Step0Schema = z.object({
 });
 
 const Step1Schema = z.object({
-  comparables: z.array(z.object({ name: z.string(), kind: z.enum(KINDS), idea: z.number().int() })),
+  comparables: z.array(z.object({
+    name: z.string(), kind: z.enum(KINDS), idea: z.number().int(),
+    mainTopic: z.string().optional(), onSubject: z.boolean().optional(),
+  })),
   candidateTags: z.array(z.string()),
 });
 
@@ -328,9 +331,31 @@ export async function step0Blind(
 // ---------------------------------------------------------------------------
 // step 1 — comparables to look up
 // ---------------------------------------------------------------------------
+const ON_SUBJECT_RULE =
+  "For every pick, first write mainTopic: what the work or brand is mainly about, in under 8 words. Then set onSubject " +
+  "true only when the product's own subject or activity is that main topic. A work where the subject is only a prop, a " +
+  "setting, one scene or a similar mood is false, and so is a family, fantasy or children's franchise picked for its feel. " +
+  "Picks with onSubject false are dropped before any lookup, so give only picks you would mark true.";
+
+/** A pick the agent itself marked as not about the product's subject is not looked up: its fans would describe
+ *  someone else's taste. */
+export function onSubjectOnly(picks: z.infer<typeof Step1Schema>["comparables"]): {
+  kept: Comparable[]; leftOut: { name: string; idea: number; mainTopic: string }[];
+} {
+  const kept: Comparable[] = [];
+  const leftOut: { name: string; idea: number; mainTopic: string }[] = [];
+  for (const x of picks) {
+    const name = x.name.trim();
+    if (!name) continue;
+    if (x.onSubject === false) leftOut.push({ name, idea: x.idea, mainTopic: (x.mainTopic ?? "").trim() });
+    else kept.push({ name, kind: x.kind, idea: x.idea });
+  }
+  return { kept, leftOut };
+}
+
 export async function step1Comparables(
   state: Pick<RunState, "scenarioId" | "input" | "assumptions">,
-): Promise<LlmResult<{ comparables: Comparable[]; candidateTags: string[] }>> {
+): Promise<LlmResult<{ comparables: Comparable[]; candidateTags: string[]; leftOut?: { name: string; idea: number; mainTopic: string }[] }>> {
   const fx = fixtureFor(state);
   const n = state.input.ideas.length;
   return withFallback(
@@ -348,18 +373,17 @@ export async function step1Comparables(
           "fans are clearly the people who do that activity (a hit film, TV show, game or book about it). Never use a " +
           "children's title for a product an adult buys for themselves, and never a title unrelated to the subject. Very " +
           "popular titles carry the most taste data; niche how-to books, " +
-          "magazines and small brands often have little or none. Also list up to 6 short " +
+          "magazines and small brands often have little or none. " + ON_SUBJECT_RULE + " Also list up to 6 short " +
           "taste tags (e.g. 'cozy', 'slow living') to check.",
         user: describeInput(state.input),
       });
       if (!out) return null;
-      const comparables = out.comparables
-        .map((x) => ({ ...x, name: x.name.trim() }))
-        .filter((x) => x.name && x.idea >= 0 && x.idea < n)
-        .slice(0, 9);
+      const { kept, leftOut } = onSubjectOnly(out.comparables.filter((x) => x.idea >= 0 && x.idea < n));
+      const comparables = kept.slice(0, 9);
       // Nothing usable to look up in Qloo: use the offline list instead of reporting an empty success.
       if (comparables.length === 0) return null;
-      return { comparables, candidateTags: out.candidateTags.map((x) => x.trim()).filter(Boolean).slice(0, 6) };
+      return { comparables, candidateTags: out.candidateTags.map((x) => x.trim()).filter(Boolean).slice(0, 6),
+        ...(leftOut.length ? { leftOut } : {}) };
     },
     () => {
       if (!fx) return plainComparables(state.input);
@@ -431,14 +455,14 @@ export async function replaceComparables(
           "works or brands (bestselling books, hit films or TV shows, popular podcasts, artists or major brands) whose fans " +
           "would plausibly buy that idea, about the product's own subject or activity; prefer very popular titles (hit films, TV shows, bestselling books), since " +
           "magazines and niche brands are usually not found. Use the exact official title. " +
-          "Do not repeat any title already tried. " +
+          "Do not repeat any title already tried. " + ON_SUBJECT_RULE + " " +
           "Return candidateTags as an empty list.",
         user: [
           describeInput(input),
           ...missing.map((m) => `Idea ${m.idea}: not found ${JSON.stringify(m.notFound)}; already tried ${JSON.stringify(m.tried)}`),
         ].join("\n"),
       });
-      return out ? pickReplacements(out.comparables, missing) : null;
+      return out ? pickReplacements(onSubjectOnly(out.comparables).kept, missing) : null;
     },
     () => [],
     "rules",

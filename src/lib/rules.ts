@@ -42,8 +42,8 @@ export const THRESHOLDS = {
   /** Mean neighbour affinity below this is treated as no taste signal (a near-zero hit is not evidence). */
   minAffinity: 0.01,
   /** Top two ideas within this many points are too close to call. Re-running the same ideas moved a score by
-   *  up to 7 points (eval fresh2, 3 runs), so a gap under 5 is not read as a difference. */
-  tieMargin: 0.05,
+   *  up to 7 points (eval fresh2, 3 runs), so a gap of 7 or less is not read as a difference. */
+  tieMargin: 0.08,
   /** A guessed look in the strongest quarter of these fans' style tags supports the guess. */
   styleTop: 0.25,
   /** In the weaker half of the list, or missing from a complete list, it challenges the guess. */
@@ -177,7 +177,8 @@ export function likeCandidates(state: RunState, limit = 4): { item: string; hit:
 
 type DemoRow = NonNullable<NonNullable<RunState["demographics"]>["perEntity"]>[number];
 /** Leave-one-out over the comparables in the same demographics call: does the verdict survive dropping any one?
- *  Needs 3+ comparables so at least two remain. Returns undefined when it cannot be tested. */
+ *  With two comparables each must lean the same way on its own; with one, the verdict rests on it alone.
+ *  Returns undefined when it cannot be tested. */
 export function leaveOneOut(
   state: RunState,
   verdict: Verdict,
@@ -185,7 +186,11 @@ export function leaveOneOut(
   verdictOf: (x: number) => Verdict,
 ): AssumptionVerdict["stability"] {
   const rows = state.demographics?.perEntity ?? [];
-  if (rows.length < 3 || verdict === "unverifiable") return undefined;
+  if (rows.length === 0 || verdict === "unverifiable") return undefined;
+  if (rows.length === 1) {
+    const r = (state.resolved ?? []).find((c) => c.entityId === rows[0].entityId);
+    return { held: false, comparables: 1, dependsOn: r?.resolvedName ?? r?.name ?? rows[0].entityId };
+  }
   for (let i = 0; i < rows.length; i++) {
     const x = measure(rows.filter((_, j) => j !== i));
     if (x === undefined || verdictOf(x) !== verdict) {
@@ -199,8 +204,9 @@ const meanOf = (xs: (number | undefined)[]): number | undefined => {
   const v = xs.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined;
 };
-const restsOnOne = (s: NonNullable<AssumptionVerdict["stability"]>) =>
-  `; with "${s.dependsOn}" left out the lean no longer passes the threshold, so it rests on one comparable and is not established`;
+const restsOnOne = (s: NonNullable<AssumptionVerdict["stability"]>) => s.comparables === 1
+  ? `; only one comparable ("${s.dependsOn}") gave this signal, so it rests on one comparable and is not established`
+  : `; with "${s.dependsOn}" left out the lean no longer passes the threshold, so it rests on one comparable and is not established`;
 
 /** "Before We Say Goodbye (Before the Coffee Gets Cold, #4)" → "before the coffee gets cold". */
 export function seriesOf(name: string): string | null {
@@ -553,7 +559,8 @@ export function rankIdeas(state: RunState): IdeaScore[] {
   // Ideas with no taste signal have no comparable score: they go after every scored idea.
   out.sort((a, b) => Number(!!a.unranked) - Number(!!b.unranked) || b.score - a.score);
   const scored = out.filter((s) => !s.unranked && !s.onHold);
-  if (scored.length >= 2 && scored[0] === out[0]) out[0] = { ...out[0], robust: weightCheck(scored, noTrend) };
+  // Without trend data only the small overlap weight can move, which cannot reorder ideas: no check to show.
+  if (scored.length >= 2 && !noTrend && scored[0] === out[0]) out[0] = { ...out[0], robust: weightCheck(scored, noTrend) };
   return assignCalls(state, out);
 }
 

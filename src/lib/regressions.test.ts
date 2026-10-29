@@ -5,7 +5,7 @@ import { afterEach, beforeEach, mock, test } from "node:test";
 import { SCENARIOS } from "../fixtures/scenarios";
 import * as clock from "./date";
 import * as client from "./llm/client";
-import { buildEvidence, pickReplacements, replaceComparables, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
+import { buildEvidence, onSubjectOnly, pickReplacements, replaceComparables, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
 import { checkListingNames, listingNames } from "./listing-names";
 import { challengedLooks, computeVerdicts, dropChallengedTags, dropOwnSeries, seriesOf, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
 import { checkMakerAssumptions, preserveMakerNotes, ruleDemographics } from "./maker-assumptions";
@@ -394,16 +394,16 @@ test("two ideas within the tie margin are both held, not one made (A4)", () => {
   assert.match(r[0].callReason ?? "", /Too close to call/);
 });
 
-test("a tie is decided on the shown (rounded) scores: exactly 0.05 apart is not a tie (M4 N11)", () => {
+test("a tie is decided on the shown (rounded) scores: exactly 0.08 apart is not a tie (M4 N11)", () => {
   let checked = 0;
-  for (let k = 0; k <= 60; k++) {
+  for (let k = 0; k <= 100; k++) {
     const r = rankIdeas(ranked([[0.5], [0.5 - k / 1000]]));
     const [a, b] = r;
     const shownGap = Math.round((a.score - b.score) * 100);
-    assert.equal(a.call === "hold", shownGap < 5, `scores ${a.score} vs ${b.score}: call ${a.call}`);
+    assert.equal(a.call === "hold", shownGap < 8, `scores ${a.score} vs ${b.score}: call ${a.call}`);
     checked++;
   }
-  assert.equal(checked, 61);
+  assert.equal(checked, 101);
 });
 
 test("a third idea within the tie margin of #1 is held with the pair, not told to make #1 first", () => {
@@ -887,7 +887,7 @@ test("outside-the-data notes keep only the maker's price and years as numbers; t
   assert.equal(checkPractical(undefined, 3, tied, 12), undefined);
   // Naming an idea row or quoting the tied scores is not an invented figure.
   const named = checkPractical(
-    { ideas: [{ idea: 0, risks: ["Idea 1 competes with idea 0 for the same buyers."], priceFit: "" }], tieBreak: { idea: 0, why: "Idea 0 and Idea 1 both score 0.95/0.94, under 0.05 apart; start with idea 0 because it is in season." } },
+    { ideas: [{ idea: 0, risks: ["Idea 1 competes with idea 0 for the same buyers."], priceFit: "" }], tieBreak: { idea: 0, why: "Idea 0 and Idea 1 both score 0.95/0.94, under 0.08 apart; start with idea 0 because it is in season." } },
     3, tied, 12, new Date("2026-10-26T00:00:00Z"),
   );
   // The model's 0-based idea numbers are shown as the maker's 1-based ones.
@@ -1096,4 +1096,38 @@ test("when the data names no first idea, a labelled general-knowledge start and 
   assert.deepEqual(p?.notes, [{ check: 0, read: "likely wrong", why: "Anglers are mostly men." }]);
   // Once the data names a first idea, no general-knowledge start is shown.
   assert.equal(checkPractical(draft, 2, [row(0, "make"), row(1, "hold", true)], 9, new Date(), [0])?.tieBreak, null);
+});
+
+test("a pick the agent marks as not about the subject is left out before any lookup", () => {
+  const { kept, leftOut } = onSubjectOnly([
+    { name: " Synthetic Subject Guide ", kind: "book", idea: 0, mainTopic: "the hobby itself", onSubject: true },
+    { name: "Synthetic Family Film", kind: "movie", idea: 0, mainTopic: "a lost pet's journey", onSubject: false },
+    { name: "Synthetic Older Pick", kind: "brand", idea: 1 },
+  ]);
+  assert.deepEqual(kept, [{ name: "Synthetic Subject Guide", kind: "book", idea: 0 }, { name: "Synthetic Older Pick", kind: "brand", idea: 1 }]);
+  assert.deepEqual(leftOut, [{ name: "Synthetic Family Film", idea: 0, mainTopic: "a lost pet's journey" }]);
+});
+
+test("with two comparables each must lean the same way; with one the lean rests on it alone", () => {
+  const two = state();
+  two.resolved = [1, 2].map((k) => ({ name: `Synthetic comparable ${k}`, resolvedName: `Synthetic comparable ${k}`, kind: "book", idea: 0, entityId: `SYN-c${k}`, status: "found" })) as unknown as RunState["resolved"];
+  two.assumptions = sheet(["55_and_older"], "female");
+  const row = (k: number, female: number) => ({ entityId: `SYN-c${k}`, age: {}, gender: { female } });
+  two.demographics = { age: {}, gender: { female: -0.2 }, callId: "SYN-demo", perEntity: [row(1, -0.38), row(2, -0.02)] };
+  const split = computeVerdicts(two).find((x) => x.field === "gender")!;
+  assert.equal(split.verdict, "unverifiable");
+  assert.equal(split.stability?.dependsOn, "Synthetic comparable 1");
+  two.demographics = { age: {}, gender: { female: -0.3 }, callId: "SYN-demo", perEntity: [row(1, -0.35), row(2, -0.25)] };
+  const both = computeVerdicts(two).find((x) => x.field === "gender")!;
+  assert.equal(both.verdict, "refuted");
+  assert.deepEqual(both.stability, { held: true, comparables: 2 });
+  two.demographics = { age: {}, gender: { female: -0.3 }, callId: "SYN-demo", perEntity: [row(1, -0.3)] };
+  const one = computeVerdicts(two).find((x) => x.field === "gender")!;
+  assert.equal(one.verdict, "unverifiable");
+  assert.match(one.reason, /only one comparable \("Synthetic comparable 1"\) gave this signal/);
+});
+
+test("without trend data no weight check is shown: the overlap weight alone cannot reorder ideas", () => {
+  const r = rankIdeas(ranked([[0.9], [0.5]]));
+  assert.equal(r[0].robust, undefined);
 });
