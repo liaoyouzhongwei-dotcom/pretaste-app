@@ -464,7 +464,7 @@ function judge(state: RunState, field: AssumptionField): Omit<AssumptionVerdict,
       const ev: Evidence[] = top.map((r) => ({ callId: r.callId, field: `heatmap.${r.region}`, value: r.score }));
       const claims = [claim(`Top regions: ${top.map((r) => `${r.region} (${r.score})`).join(", ")}.`, "qloo", ev)];
       if (hits.length > 0) {
-        return { verdict: "supported", reason: `${hits.map((x) => x.r.region).join(", ")} in the top ${top.length}`, claims };
+        return { verdict: "supported", reason: `${hits.map((x) => x.r.region).join(", ")} in the top ${top.length} (${hits.length} of ${guessed.size} guessed states); only the top states are recorded, so a region guess can be supported here but never challenged`, claims };
       }
       // Only the top regions are kept, so a low place in this list is not a low national rank.
       // Never refute a region guess from it.

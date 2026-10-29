@@ -377,7 +377,11 @@ export async function step1Comparables(
           "fans would plausibly buy each product idea. Use the exact common title. 2-3 per idea. Mix two kinds: one " +
           "bestselling book or major brand about the product's own subject or activity (for a knitting planner, a bestselling " +
           "knitting book; for a pregnancy journal, a bestselling pregnancy book), and one or two very popular titles whose " +
-          "fans are clearly the people who do that activity (a hit film, TV show, game or book about it). Never use a " +
+          "fans are clearly the people who do that activity (a hit film, TV show, game or book about it). When the product " +
+          "is itself a kind of book people use rather than read (a coloring book, journal, log book, planner or workbook), " +
+          "make the first pick a bestselling title of that same kind, on the same theme when one exists (for a Japan-scenes " +
+          "coloring book, a bestselling adult coloring book; for a hiking log, a bestselling hiking journal or guide); a " +
+          "novel or show that only shares the setting does not describe who buys that kind of book. Never use a " +
           "children's title for a product an adult buys for themselves, and never a title unrelated to the subject. Very " +
           "popular titles carry the most taste data; niche how-to books, " +
           "magazines and small brands often have little or none. " + ON_SUBJECT_RULE + " Also list up to 6 short " +

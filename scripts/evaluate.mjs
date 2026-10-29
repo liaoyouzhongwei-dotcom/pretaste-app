@@ -531,7 +531,45 @@ const FRESH6_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, fresh6: FRESH6_INPUTS, cases: CASE_INPUTS };
+// Sealed seventh set: new topics, written before running it on the version that makes the first comparable a
+// bestselling title of the same kind of book. Includes a coloring book (reps 3) to test that change.
+const FRESH7_INPUTS = [
+  {
+    id: "k-surf",
+    input: { ideas: ["Surf session log book", "Surf trip travel journal"], marketplace: "kdp", priceUsd: 8.99, ownAssumptions: "Surf logs are bought mostly by women over 65." },
+    planted: { fact: "Surfers skew male and under 45; women over 65 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "k-crossstitch",
+    input: { ideas: ["Cross-stitch project tracking journal", "Embroidery floss inventory log"], marketplace: "kdp", priceUsd: 7.99, ownAssumptions: "Cross-stitch journals sell mostly to men under 25." },
+    planted: { fact: "Cross-stitch hobbyists are mostly women and skew over 35; men under 25 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "k-wine",
+    input: { ideas: ["Wine tasting journal", "Wine and cheese pairing cards"], marketplace: "etsy", priceUsd: 6, ownAssumptions: "Wine tasting journals sell mostly to people under 21." },
+    planted: { fact: "Wine buyers in the US must be 21 or older and skew 35 and over; people under 21 are not the market." },
+    reps: 1,
+  },
+  {
+    id: "k-ocean-coloring",
+    input: { ideas: ["Adult coloring book of ocean and coral reef scenes", "Mandala coloring book for relaxation"], marketplace: "kdp", priceUsd: 9.99 },
+    reps: 3,
+  },
+  {
+    id: "k-climb",
+    input: { ideas: ["Rock climbing route log", "Bouldering progress tracker"], marketplace: "etsy", priceUsd: 5 },
+    reps: 1,
+  },
+  {
+    id: "k-mahjong",
+    input: { ideas: ["Mahjong score sheets", "Mahjong rules and strategy cheat cards"], marketplace: "kdp", priceUsd: 6.99 },
+    reps: 1,
+  },
+];
+
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, fresh6: FRESH6_INPUTS, fresh7: FRESH7_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
