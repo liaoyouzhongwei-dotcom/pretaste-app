@@ -272,6 +272,9 @@ export interface ListingCheck {
  * - tags are trimmed, de-duplicated and cut to the marketplace limits (Etsy: 13 tags of at most
  *   20 characters; KDP: 7 keywords of at most 50 characters).
  */
+/** Filler that points the buyer elsewhere instead of saying what they get. */
+const PLACEHOLDER = /\b(?:as (?:listed|shown|stated|described|noted|given) (?:on|in) the (?:product|listing|item) (?:page|details|listing|description)|see (?:the )?(?:product|listing) (?:page|details))\b/i;
+
 export function checkListing(
   listing: { title: string; description: string; tags: string[]; coverDirection?: string },
   registry: RegistryItem[],
@@ -302,6 +305,10 @@ export function checkListing(
     text
       .split(/(?<=[.!?])\s+/)
       .filter((s) => {
+        if (PLACEHOLDER.test(s)) {
+          notes.push(`listing: removed from ${where} "${s.trim()}" — a placeholder that tells the buyer nothing`);
+          return false;
+        }
         if (passes(s)) return true;
         notes.push(`listing: removed from ${where} "${s.trim()}" — ${why()}`);
         return false;

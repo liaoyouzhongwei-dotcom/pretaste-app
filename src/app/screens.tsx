@@ -177,7 +177,7 @@ export function ChangeSummary({ run }: { run: RunState }) {
   const openText = open ? `; ${open} could not be checked` : "";
   const headline = challenged.length
     ? `${checked.length === 1 ? "The 1 checkable audience guess was" : `${challenged.length === checked.length ? `All ${checked.length}` : `${challenged.length} of ${checked.length}`} checkable audience guesses`} challenged by Qloo${openText}`
-    : checked.length ? `${checked.length} of ${verdicts.length} audience guesses have a Qloo signal${openText}` : "No audience guess could be checked yet";
+    : checked.length ? `${supported.length === checked.length ? (checked.length === 1 ? "The 1 checkable audience guess was" : `All ${checked.length} checkable audience guesses were`) : `${checked.length} of ${verdicts.length} audience guesses were`} ${supported.length === checked.length ? "supported by Qloo" : "checked by Qloo"}${openText}` : "No audience guess could be checked yet";
   const styleTags = (run.tasteTags?.tags ?? []).filter(t => t.kind === "style");
   const afterWords = [s.after.title, ...(s.after.tags ?? [])].join(" ");
   // A style tag counts as the source of a new word only when the whole tag name appears in the after draft and not in the before.

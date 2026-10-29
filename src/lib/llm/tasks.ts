@@ -607,7 +607,11 @@ export async function step10Grounded(
           "search term for what the item is, what it is used for or who uses it. When the comparables are only loosely " +
           "related to this product (a sport's equipment brands for a score sheet, a science TV series for an observing log), " +
           "use their taste tags for the cover mood only and keep the title and tags plain. " + TAG_RULE + " The description is 3-5 plain sentences: what is inside, " +
-          "how the buyer uses it, and the format and size only as the maker gave them. The listing must describe " +
+          "how the buyer uses it, and the format and size only as the maker gave them. Keep the concrete contents of the " +
+          "blind listing's description (sections, page layouts, what each page records) unless the data challenged them. " +
+          "When the maker gave no format, size or page count, leave them out; never write a placeholder such as 'as listed " +
+          "on the product page'. Never paste a taste tag's wording (e.g. 'meticulously detailed', 'visually gritty') into " +
+          "buyer copy; say the look in words a buyer would use. The listing must describe " +
           "the same format your priceFit judged the price suits (printed or digital). " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
           "wording if dates are not supplied. Do not put trademarks, named brands, franchises, comparable titles or their " +

@@ -173,3 +173,14 @@ test("LLM rephrasing cannot substitute another work's audience for a missing tit
     if (savedKey === undefined) delete process.env.QLOO_API_KEY; else process.env.QLOO_API_KEY = savedKey;
   }
 });
+
+test("a placeholder sentence that points the buyer elsewhere is removed from the description", () => {
+  const listing = {
+    title: "Sample Log Book",
+    tags: ["sample log book"],
+    description: "Pages to record each session. Format and size are as listed on the product page. Use it after every outing.",
+  };
+  const result = checkListing(listing, [], "kdp", [], "Sample Log Book");
+  assert.equal(result.description, "Pages to record each session. Use it after every outing.");
+  assert.ok(result.notes.some((n) => /placeholder/.test(n)));
+});

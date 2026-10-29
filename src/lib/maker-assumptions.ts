@@ -183,7 +183,7 @@ export function checkMakerAssumptions(state: RunState): MakerAssumptionCheck[] {
     // Relative affinity cannot confirm quantified demographics or commercial outcomes.
     if (result.status === "matches" && /\b(most|mostly|majority|all|only|everyone|will buy|will sell|sell well|profit|revenue)\b|%|過半数|大半|ほとんど|必ず|売れる/i.test(a.text)) {
       result.status = "cannot check";
-      result.reason = "The relative affinity signal aligns, but Qloo cannot confirm the asserted share or commercial outcome.";
+      result.reason = "Not confirmed: Qloo shows only a relative lean, which cannot show a buyer share or sales, so the claim stays unproven.";
     }
     return result;
   });
