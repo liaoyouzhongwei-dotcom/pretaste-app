@@ -33,7 +33,11 @@ export function evidenceParts(field: string, value: unknown): { name: string; va
   if (field === "query.affinity") return { name: "Taste affinity", value: shown(value) };
   if (field === "query.velocity" && n !== undefined) return { name: "Trend velocity", value: signed(n) };
   if (head === "heatmap" && tail) return { name: `Region · ${tail}`, value: shown(value) };
-  if (head === "tags" && tail) return { name: `Taste tag · ${tail.replace(/\.affinity$/, "")}`, value: shown(value) };
+  if (field === "results.tags.name") return { name: "Qloo style tag", value: shown(value) };
+  if (field === "tags.style.total") return { name: "Style tags for these fans", value: shown(value) };
+  const tagName = (t: string) => t.replace(/[\s,.;:]+$/, "");
+  if (head === "tags" && tail.endsWith(".rank")) return { name: `Rank · ${tagName(tail.slice(0, -5))}`, value: `#${shown(value)}` };
+  if (head === "tags" && tail) return { name: `Taste tag · ${tagName(tail.replace(/\.affinity$/, ""))}`, value: shown(value) };
   if ((head === "affinity" || head === "velocity") && tail) return { name: `${head === "affinity" ? "Affinity" : "Trend"} · ${tail}`, value: n !== undefined && head === "velocity" ? signed(n) : shown(value) };
   return { name: say(field), value: shown(value) };
 }
@@ -101,16 +105,20 @@ function ScreenHead({ title, children }: { title: string; children: ReactNode })
 export function plainWhy(v: AssumptionVerdict): string {
   const guessed = readable(v.assumed);
   const ev = v.claims.flatMap(c => c.evidence);
+  const held = v.stability?.held ? ` This holds with any one of the ${v.stability.comparables} comparables left out.` : "";
   if (v.field === "age") {
+    const [mine, rest] = v.claims.filter(c => c.kind === "qloo").map(c => c.evidence.filter(e => e.field.startsWith("age.") && typeof e.value === "number"));
+    const mean = (xs?: typeof ev) => xs?.length ? xs.reduce((s, e) => s + (e.value as number), 0) / xs.length : undefined;
+    const gap = mean(mine) !== undefined && mean(rest) !== undefined ? Math.round((mean(mine)! - mean(rest)!) * 100) / 100 : undefined;
     const top = ev.filter(e => e.field.startsWith("age.") && typeof e.value === "number").sort((a, b) => (b.value as number) - (a.value as number))[0];
     const band = top ? readable(top.field.slice(4)) : null;
-    const side = v.verdict === "supported" ? "above" : "below";
-    if (band && !guessed.includes(band)) return `You guessed ${guessed}. On balance, Qloo's comparable audience sits ${side} average in those ages; its strongest age group is ${band}.`;
-    return `You guessed ${guessed}. On balance, Qloo's comparable audience sits ${side} average in those ages.`;
+    const side = (gap ?? 0) < 0 ? "lower" : "higher";
+    const lead = gap !== undefined ? `Fans of the comparables score ${Math.abs(gap)} ${side} in those ages than in the other age groups` : `Fans of the comparables score ${side} in those ages than in the other age groups`;
+    return `You guessed ${guessed}. ${lead}${band && !guessed.includes(band) ? `; the highest-scoring group is ${band}` : ""}.${held}`;
   }
   if (v.field === "gender") {
     const f = ev.find(e => e.field === "gender.female")?.value;
-    if (typeof f === "number") return `You guessed ${v.assumed === "neutral" ? "no gender lean" : `mostly ${guessed === "female" ? "women" : guessed === "male" ? "men" : guessed}`}. Qloo's comparable audience leans toward ${f < 0 ? "men" : "women"}.`;
+    if (typeof f === "number") return `You guessed ${v.assumed === "neutral" ? "no gender lean" : `mostly ${guessed === "female" ? "women" : guessed === "male" ? "men" : guessed}`}. Qloo's comparable audience leans toward ${f < 0 ? "men" : "women"}.${held}`;
   }
   const reason = readable(v.reason);
   if (v.field === "aesthetic") return /guessed/i.test(reason) ? `${reason.charAt(0).toUpperCase()}${reason.slice(1)}` : `You guessed a ${guessed} look. ${reason.charAt(0).toUpperCase()}${reason.slice(1)}`;
@@ -123,8 +131,8 @@ export function changeSummary(run: RunState) {
   const refuted = verdicts.filter(v => v.verdict === "refuted");
   const receipts = (run.groundedClaims ?? []).filter(c => c.kind === "qloo" && c.evidence.length).length;
   const rank = run.ranking?.find(r => r.idea === run.focusIdea);
-  const why = refuted.length ? refuted.slice(0, 2).map(plainWhy) : [`No guess was challenged by the available signal. ${verdicts.filter(v => v.verdict === "unverifiable").length} assumptions remain not established. The rewrite cites ${receipts} recorded Qloo ${receipts === 1 ? "claim" : "claims"}.`];
-  return { before, after, why, more: Math.max(0, refuted.length - 2), call: rank?.call ? `${CALL_LABELS[rank.call]}: ${readable(rank.callReason ?? "")}` : null, noModel: run.sources[0] === "rules", hasEvidence: receipts > 0 };
+  const why = refuted.length ? refuted.slice(0, 3).map(plainWhy) : [`No guess was challenged by the available signal. ${verdicts.filter(v => v.verdict === "unverifiable").length} assumptions remain not established. The rewrite cites ${receipts} recorded Qloo ${receipts === 1 ? "claim" : "claims"}.`];
+  return { before, after, why, more: Math.max(0, refuted.length - 3), call: rank?.call ? `${CALL_LABELS[rank.call]}: ${readable(rank.callReason ?? "")}` : null, noModel: run.sources[0] === "rules", hasEvidence: receipts > 0 };
 }
 function firstEvidence(run: RunState, v?: AssumptionVerdict) {
   const ev = v?.claims.filter(c => c.kind === "qloo").flatMap(c => c.evidence).filter(e => run.calls.some(c => c.callId === e.callId)) ?? [];
@@ -162,15 +170,26 @@ export function ChangeSummary({ run }: { run: RunState }) {
   const checked = verdicts.filter(v => v.verdict !== "unverifiable");
   const challenged = checked.filter(v => v.verdict === "refuted");
   const supported = checked.filter(v => v.verdict === "supported");
-  const rows = challenged.length ? challenged.slice(0, 2).map(v => ({ key: v.field, field: ASSUMPTION_LABELS[v.field], text: plainWhy(v), ev: firstEvidence(run, v) })) : [{ key: "none", field: checked.length ? "Checked" : "Open", text: s.why[0], ev: undefined }];
+  const rows = challenged.length ? challenged.slice(0, 3).map(v => ({ key: v.field, field: ASSUMPTION_LABELS[v.field], text: plainWhy(v), ev: firstEvidence(run, v) })) : [{ key: "none", field: checked.length ? "Checked" : "Open", text: s.why[0], ev: undefined }];
   const alsoLiked = [...(run.neighbors ?? [])].filter(n => n.affinity > 0).sort((a, b) => b.affinity - a.affinity).slice(0, 3);
-  const headline = challenged.length ? `${challenged.length} of ${verdicts.length} audience guesses challenged by Qloo taste data` : checked.length ? `${checked.length} of ${verdicts.length} audience guesses have a Qloo signal` : "No audience guess could be checked yet";
+  const open = verdicts.length - checked.length;
+  const openText = open ? `; ${open} could not be checked` : "";
+  const headline = challenged.length
+    ? `${challenged.length === checked.length ? `All ${checked.length} checkable` : `${challenged.length} of ${checked.length} checkable`} audience guesses challenged by Qloo${openText}`
+    : checked.length ? `${checked.length} of ${verdicts.length} audience guesses have a Qloo signal${openText}` : "No audience guess could be checked yet";
+  const styleTags = (run.tasteTags?.tags ?? []).filter(t => t.kind === "style");
+  const afterWords = [s.after.title, ...(s.after.tags ?? [])].join(" ");
+  // A style tag counts as the source of a new word only when the whole tag name appears in the after draft and not in the before.
+  const words = (x: string) => ` ${x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const beforeWords = words([s.before.title, ...(s.before.tags ?? [])].join(" "));
+  const backed = styleTags.filter(t => { const k = words(t.name); return k.trim().length > 2 && words(afterWords).includes(k) && !beforeWords.includes(k); }).slice(0, 4);
   return <section aria-label="Your taste research, at a glance" className="summary">
-    <div className="summary-head"><div className="summary-title"><p className="summary-idea">Idea {run.focusIdea + 1} · {run.input.ideas[run.focusIdea]}</p><h2>{headline}</h2><p className="summary-sub">{checked.length} of {verdicts.length} assumptions could be checked against a signal. Taste signals guide your next experiment; they do not predict purchases.</p></div>
+    <div className="summary-head"><div className="summary-title"><p className="summary-idea">Idea {run.focusIdea + 1} · {run.input.ideas[run.focusIdea]}</p><h2>{headline}</h2><p className="summary-sub">Taste signals guide your next experiment; they do not predict purchases.</p></div>
 </div>
     <ol className="guess-strip" aria-label={`All ${verdicts.length} guesses: ${challenged.length} challenged, ${supported.length} supported, ${verdicts.length - checked.length} not established`}>{verdicts.map(v => <li key={v.field} className={`guess guess-${v.verdict}`}><span className="guess-field">{ASSUMPTION_LABELS[v.field]}</span><span className="guess-word">{VERDICT_WORD[v.verdict]}</span></li>)}</ol>
-    <div className="summary-finding"><p className="summary-label">{challenged.length ? "The reason to rethink" : "What the check established"}</p><ul>{rows.map(r => <li key={r.key}><span className="summary-field">{r.field}</span><p>{r.text}</p>{r.ev && <EvidenceChip callId={r.ev.callId} field={r.ev.field} value={r.ev.value} />}</li>)}{alsoLiked.length > 0 && <li key="also" className="also-liked"><span className="summary-field">Fans also like</span><p>Qloo&apos;s strongest taste connections for these comparables: {alsoLiked.map((n, i) => <span key={n.entityId}>{i ? ", " : ""}<strong>{n.name.replace(/\s*\([^()]*#\s*\d[^()]*\)\s*$/, "")}</strong> <span className="p-muted">({n.kind.replace("urn:entity:", "").replaceAll("_", " ")})</span></span>)}. Use them to choose who to test the listing with next.</p><CallChip callId={alsoLiked[0].callId} /></li>}</ul></div>
-    <div className="summary-drafts">{[{ label: s.noModel ? "Before · your original words" : "Before · model assumptions", draft: s.before }, { label: s.hasEvidence ? "After · informed by taste signals" : "After · draft awaiting evidence", draft: s.after }].map((item, i) => <div key={i} className={i ? "draft-after" : "draft-before"}><p className="summary-label">{item.label}</p><p className="draft-title">{i && item.draft.title && s.before.title ? <MarkedTitle before={s.before.title} after={item.draft.title} /> : item.draft.title || "Title withheld · generic wording needed"}</p>{!!item.draft.tags?.length && <p className="draft-tags">{item.draft.tags.slice(0, 7).map((t, k) => i && !s.before.tags.some(b => b.toLowerCase() === t.toLowerCase()) ? <mark key={k}>{t}</mark> : <span key={k}>{t}</span>)}</p>}{i === 1 && s.hasEvidence && challenged.length > 0 && <p className="draft-why">Rewritten after Qloo challenged: {challenged.map(v => ASSUMPTION_LABELS[v.field]).join(", ")}</p>}</div>)}</div>
+    <div className="summary-finding"><p className="summary-label">{challenged.length ? "The reason to rethink" : "What the check established"}</p><ul>{rows.map(r => <li key={r.key}><span className="summary-field">{r.field}</span><p>{r.text}</p>{r.ev && <EvidenceChip callId={r.ev.callId} field={r.ev.field} value={r.ev.value} />}</li>)}</ul></div>
+    {alsoLiked.length > 0 && <div className="summary-also"><p className="summary-label">Fans also like</p><p>Titles Qloo ties most strongly to fans of these comparables: {alsoLiked.map((n, i) => <span key={n.entityId}>{i ? ", " : ""}<strong>{n.name.replace(/\s*\([^()]*#\s*\d[^()]*\)\s*$/, "")}</strong> <span className="p-muted">({n.kind.replace("urn:entity:", "").replaceAll("_", " ")})</span></span>)}. Candidates for ad targeting and comparison keywords, not proof of buyers.</p><CallChip callId={alsoLiked[0].callId} /></div>}
+    <div className="summary-drafts">{[{ label: s.noModel ? "Before · your original words" : "Before · model assumptions", draft: s.before }, { label: s.hasEvidence ? "After · informed by taste signals" : "After · draft awaiting evidence", draft: s.after }].map((item, i) => <div key={i} className={i ? "draft-after" : "draft-before"}><p className="summary-label">{item.label}</p><p className="draft-title">{i && item.draft.title && s.before.title ? <MarkedTitle before={s.before.title} after={item.draft.title} /> : item.draft.title || "Title withheld · generic wording needed"}</p>{!!item.draft.tags?.length && <p className="draft-tags">{item.draft.tags.slice(0, 7).map((t, k) => i && !s.before.tags.some(b => b.toLowerCase() === t.toLowerCase()) ? <mark key={k}>{t}</mark> : <span key={k}>{t}</span>)}</p>}{i === 1 && s.hasEvidence && challenged.length > 0 && <p className="draft-why">Rewritten after Qloo challenged: {challenged.map(v => ASSUMPTION_LABELS[v.field]).join(", ")}.{backed.length ? <> New words taken from Qloo style tags for these fans: {backed.map((t, k) => <span key={t.name}>{k ? ", " : ""}<span className="tag-cite">{t.name}</span></span>)}. The rest is the writer&apos;s wording.</> : " The new words are the writer's wording, not Qloo tags."}</p>}</div>)}</div>
     {(s.more > 0 || s.call) && <div className="summary-next">{s.call && <p><span className="summary-label">Next step</span><span className="summary-call">{s.call}</span></p>}{s.more > 0 && <p className="summary-label">{plural(s.more, "more challenged assumption")} in the Assumptions tab.</p>}</div>}
   </section>;
 }
@@ -195,7 +214,7 @@ function Listing({ title, l }: { title: string; l?: ListingDraft }) {
 }
 export function CompareScreen({ run, qlooOff, setQlooOff }: { run: RunState; qlooOff: boolean; setQlooOff: (b: boolean) => void }) {
   const claims = qlooOff ? [] : run.groundedClaims ?? [], count = claims.filter(c => c.kind === "qloo" && c.evidence.length).length;
-  return <section className="screen"><ScreenHead title="From a guess to a direction">Two drafts of the same product, idea {run.focusIdea + 1}. Taste-informed copy still needs a real customer test.</ScreenHead><label className="toggle-row"><input type="checkbox" checked={qlooOff} onChange={e => setQlooOff(e.target.checked)} /><span><strong>Show the counterfactual: Qloo off</strong><span className="p-muted">Replace the after draft with the original, without taste signals.</span></span></label>
+  return <section className="screen"><ScreenHead title="From a guess to a direction">Two drafts of the same product, idea {run.focusIdea + 1}. Taste-informed copy still needs a real customer test.</ScreenHead><label className="toggle-row"><input type="checkbox" checked={qlooOff} onChange={e => setQlooOff(e.target.checked)} /><span><strong>Hide the Qloo version</strong><span className="p-muted">Show the before draft in both columns, to compare without taste signals.</span></span></label>
     <div className="card-grid"><div className="p-panel"><Listing title={run.sources[0] === "rules" ? "Before · your words" : "Before · model only"} l={run.blindListing} /></div><div className={`p-panel ${qlooOff ? "" : "panel-accent"}`}><Listing title={qlooOff ? "After · Qloo off, original draft" : count ? "After · taste-informed" : "After · draft awaiting evidence"} l={qlooOff ? run.blindListing : run.groundedListing} /><div className="panel-foot"><p><strong>{count} recorded {count === 1 ? "claim" : "claims"} behind this draft</strong></p><p className="p-muted">A recorded taste signal is not proof of product demand.</p>{!!claims.length && <details className="p-detail inline-detail"><summary>Read claims and sources</summary><Claims claims={claims} /></details>}</div></div></div>
     {!qlooOff && run.checker && <details className="p-panel p-detail"><summary>Evidence checker · {run.checker.downgraded} downgraded, {run.checker.dropped} removed, {run.checker.listingFixes ?? 0} copy fixes</summary><ul className="note-list">{run.checker.notes.map((n,i) => <li key={i}>{n}</li>)}</ul></details>}
   </section>;

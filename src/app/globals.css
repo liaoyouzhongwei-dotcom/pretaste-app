@@ -235,6 +235,11 @@ h3 { font-size:18px; font-weight:650; letter-spacing:-.01em; line-height:1.35; }
 .summary-field::before { content:""; width:8px; height:8px; border-radius:50%; background:currentColor; flex-shrink:0; }
 .summary-finding li p { font-size:18px; line-height:1.5; overflow-wrap:anywhere; }
 .summary-finding .evidence-link { grid-column:2; justify-self:start; }
+.summary-also { border-top:1px solid var(--dark-line); padding-top:16px; display:grid; grid-template-columns:120px minmax(0,1fr); gap:8px 20px; align-items:start; }
+.summary-also>p:nth-of-type(2) { font-size:16px; line-height:1.5; color:var(--on-dark-muted); overflow-wrap:anywhere; }
+.summary-also strong { color:var(--on-dark); font-weight:500; }
+.summary-also .evidence-link,.summary-also .call-chip { grid-column:2; justify-self:start; }
+.tag-cite { border-bottom:1px dotted currentColor; }
 .summary-drafts { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 .summary-drafts>div { min-width:0; background:var(--dark-2); border:1px solid var(--dark-line); border-radius:var(--r); padding:16px 20px; }
 .draft-title { margin-top:6px; font-size:17px; line-height:1.45; overflow-wrap:anywhere; }
@@ -445,6 +450,8 @@ ol.note-list { list-style:decimal; }
   .count dd { font-size:32px; }
   .summary-finding li { grid-template-columns:1fr; }
   .summary-finding .evidence-link { grid-column:1; }
+  .summary-also { grid-template-columns:1fr; }
+  .summary-also .evidence-link,.summary-also .call-chip { grid-column:1; }
   .summary-finding li p { font-size:17px; }
   .p-panel,.panel { padding:20px; }
   .bar-rows li { grid-template-columns:84px minmax(0,1fr) 56px; gap:8px; }

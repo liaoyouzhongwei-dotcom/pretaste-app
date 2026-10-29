@@ -89,7 +89,7 @@ export async function searchEntity(
 export async function demographics(
   entityIds: string[],
   step: number,
-): Promise<{ age: Partial<Record<AgeBand, number>>; gender: { female?: number; male?: number }; record: CallRecord } | null> {
+): Promise<{ age: Partial<Record<AgeBand, number>>; gender: { female?: number; male?: number }; perEntity: { entityId: string; age: Partial<Record<AgeBand, number>>; gender: { female?: number; male?: number } }[]; record: CallRecord } | null> {
   const { data, record } = await qlooGet<QlooInsightsResponse>(
     "/v2/insights",
     { "filter.type": "urn:demographics", "signal.interests.entities": entityIds.join(",") },
@@ -106,7 +106,14 @@ export async function demographics(
     const vals = rows.map((r) => r.query?.gender?.[k]).filter(isFiniteNumber);
     return vals.length ? round(vals.reduce((a, b) => a + b, 0) / vals.length) : undefined;
   };
-  return { age, gender: { female: avg("female"), male: avg("male") }, record };
+  const perEntity = rows.flatMap((r) => {
+    if (typeof r.entity_id !== "string") return [];
+    const a: Partial<Record<AgeBand, number>> = {};
+    for (const band of AGE_BANDS) { const v = r.query?.age?.[band]; if (isFiniteNumber(v)) a[band] = round(v); }
+    const f = r.query?.gender?.female, m = r.query?.gender?.male;
+    return [{ entityId: r.entity_id, age: a, gender: { female: isFiniteNumber(f) ? round(f) : undefined, male: isFiniteNumber(m) ? round(m) : undefined } }];
+  });
+  return { age, gender: { female: avg("female"), male: avg("male") }, perEntity, record };
 }
 
 export async function neighbors(
@@ -236,10 +243,12 @@ export const TASTE_TAG_TYPES = {
 } as const;
 
 /** The tags Qloo most ties to fans of these entities, strongest first. */
+export const TAG_PAGE = 50;
 export async function tasteTags(
   entityIds: string[],
   set: keyof typeof TASTE_TAG_TYPES,
   step: number,
+  page = 1,
 ): Promise<{ tags: { name: string; kind: string; affinity: number }[]; record: CallRecord }> {
   const { data, record } = await qlooGet<QlooInsightsResponse>(
     "/v2/insights",
@@ -247,7 +256,8 @@ export async function tasteTags(
       "filter.type": "urn:tag",
       "filter.tag.types": TASTE_TAG_TYPES[set].join(","),
       "signal.interests.entities": entityIds.join(","),
-      take: "50",
+      take: String(TAG_PAGE),
+      ...(page > 1 ? { page: String(page) } : {}),
     },
     { step, expect: ["results.tags"] },
   );
@@ -255,6 +265,21 @@ export async function tasteTags(
     .filter((t) => t.name?.trim())
     .map((t) => ({ name: t.name!.trim(), kind: (t.subtype ?? t.type ?? "").split(":")[2] ?? "", affinity: round(t.query?.affinity ?? 0) }));
   return { tags, record };
+}
+
+/** The Qloo style tag named exactly like the guess (case, spacing and hyphens ignored), if Qloo has one. */
+export async function styleTagNamed(guess: string, step: number): Promise<{ name: string | null; record: CallRecord }> {
+  const { data, record } = await qlooGet<QlooInsightsResponse>(
+    "/v2/tags",
+    { "filter.query": guess, "filter.tag.types": TASTE_TAG_TYPES.style.join(","), take: "5" },
+    { step, expect: ["results.tags"] },
+  );
+  const hit = (data.results?.tags ?? []).find((t) => t.name && sameTagName(t.name, guess));
+  return { name: hit?.name?.trim() ?? null, record };
+}
+
+export function sameTagName(a: string, b: string): boolean {
+  return nameKey(a) === nameKey(b);
 }
 
 export function isFiniteNumber(v: unknown): v is number {

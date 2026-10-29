@@ -97,7 +97,7 @@ function insights(params: Record<string, string>): QlooInsightsResponse {
   if (type === "urn:tag") {
     const style = (params["filter.tag.types"] ?? "").includes("style");
     const pool = style
-      ? ["Whimsical", "Contemplative", "Heartwarming", "Nostalgic", "Cozy", "Minimalist", "Dreamy", "Dark", "Epic", "Retro"]
+      ? STYLE_POOL
       : ["Food", "Village", "Everyday life", "Japanese", "Travel", "Family", "Cats", "Festival", "City", "School"];
     const subtype = style ? "urn:tag:style:qloo" : "urn:tag:keyword:media";
     const picks = [...pool].sort((a, b) => h(seed + a) - h(seed + b)).slice(0, 8);
@@ -169,6 +169,8 @@ function trending(params: Record<string, string>): QlooTrendingResponse {
 }
 
 /** Route a mock request by path. */
+const STYLE_POOL = ["Whimsical", "Contemplative", "Heartwarming", "Nostalgic", "Cozy", "Minimalist", "Dreamy", "Dark", "Epic", "Retro"];
+
 export function mockResponse(apiPath: string, params: Record<string, string>): unknown {
   switch (apiPath) {
     case "/search":
@@ -179,6 +181,12 @@ export function mockResponse(apiPath: string, params: Record<string, string>): u
       return compare(params);
     case "/v2/trending":
       return trending(params);
+    case "/v2/tags": {
+      // Synthetic style tag lookup: a guess is a tag only when it is in the mock style pool.
+      const q = (params["filter.query"] ?? "").trim().toLowerCase();
+      const hit = STYLE_POOL.find((x) => x.toLowerCase() === q);
+      return { success: true, results: { tags: hit ? [{ tag_id: `urn:tag:style:qloo:${q}`, name: hit, type: "urn:tag:style:qloo" }] : [] } };
+    }
     default:
       return { success: true, results: {} };
   }

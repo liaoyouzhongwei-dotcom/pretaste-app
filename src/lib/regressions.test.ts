@@ -7,7 +7,7 @@ import * as clock from "./date";
 import * as client from "./llm/client";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
 import { checkListingNames, listingNames } from "./listing-names";
-import { computeVerdicts, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
+import { challengedLooks, computeVerdicts, dropChallengedTags, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches, weightCheck } from "./rules";
 import { checkMakerAssumptions, preserveMakerNotes } from "./maker-assumptions";
 import { checkClaims } from "./claims";
 import { checkPractical, joinRisks } from "./practical";
@@ -147,8 +147,8 @@ test("focus selection uses the ranked idea for audience calls, verdicts, evidenc
   assert.equal(result.focusIdea, 1);
   assert.equal(result.blindListing?.title, "Travel journal");
   assert.equal(result.neighbors?.[0].entityId, "SYN-neighbor-1");
-  const audienceCalls = result.calls.filter((c) => c.step === 3 || c.step === 7);
-  assert.equal(audienceCalls.length, 4); // demographics, heatmap, style tags, topic tags
+  const audienceCalls = result.calls.filter((c) => (c.step === 3 || c.step === 7) && c.path !== "/v2/tags");
+  assert.equal(audienceCalls.length, 4); // demographics, heatmap, style tags, topic tags (the mock list fits on one page)
   assert.ok(audienceCalls.every((c) => c.params["signal.interests.entities"] === "SYN-comparable-1"));
   result = await runStep(8, result);
   result = await runStep(9, result);
@@ -357,7 +357,7 @@ test("a third idea within the tie margin of #1 is held with the pair, not told t
 });
 
 test("an idea behind a tied pair is told to settle the pair first, not to make #1", () => {
-  const r = rankIdeas(ranked([[0.50], [0.49], [0.30]]));
+  const r = rankIdeas(ranked([[0.50], [0.49], [0.40]]));
   assert.deepEqual(r.map((x) => x.call), ["hold", "hold", "skip"]);
   assert.match(r[2].callReason ?? "", /can't be separated: settle those first/);
 });
@@ -395,13 +395,40 @@ test("a guessed look is checked against Qloo's taste tags: whole words or a 5-le
   const verdict = () => computeVerdicts(run).find((x) => x.field === "aesthetic")!;
   run.tasteTags = tags(["Contemplative", "japanese drama", "Subtle"]);
   assert.equal(verdict().verdict, "unverifiable");
-  assert.match(verdict().reason, /^Mixed: only Japanese/);
+  assert.match(verdict().reason, /^Only Japanese/);
   run.tasteTags = tags(["Cozy Atmosphere", "japan", "Subtle"]);
   assert.equal(verdict().verdict, "supported");
+  // Only the top tags known: a look missing from them is not refuted.
   run.tasteTags = tags(["Darkly Comedic", "Epic", "Violent"]);
-  assert.equal(verdict().verdict, "refuted");
+  assert.equal(verdict().verdict, "unverifiable");
+  assert.match(verdict().reason, /Not counted as refuted/);
   assert.ok(verdict().claims.every((c) => c.evidence.every((e) => e.callId === "SYN-tags")));
   run.tasteTags = null;
+  assert.equal(verdict().verdict, "unverifiable");
+});
+
+test("a guessed look is judged by its place among every style tag of these fans", () => {
+  const run = state();
+  run.assumptions = sheet([], "neutral");
+  run.assumptions.aesthetic.tags = ["cozy", "slice-of-life", "cute", "quiet"];
+  run.tasteTags = { tags: [{ name: "Understated", kind: "style", affinity: 0.99, callId: "SYN-p1" }] };
+  const verdict = () => computeVerdicts(run).find((x) => x.field === "aesthetic")!;
+  const checks = [
+    { guess: "cozy", tag: "Cozy", searchCallId: "SYN-s1" },
+    { guess: "slice-of-life", tag: "Slice of life", searchCallId: "SYN-s2", rank: 600, affinity: 0.6, callId: "SYN-p12" },
+    { guess: "cute", searchCallId: "SYN-s3" },
+  ];
+  run.styleRanking = { total: 700, complete: true, lastCallId: "SYN-p14", checks };
+  assert.equal(verdict().verdict, "refuted");
+  assert.match(verdict().reason, /slice-of-life is #600; cozy is not in the list at all/);
+  assert.match(verdict().reason, /cute is not a Qloo style tag/);
+  // The same missing tag on an unfinished list is not evidence.
+  run.styleRanking = { ...run.styleRanking, complete: false };
+  assert.equal(verdict().verdict, "refuted"); // still refuted by slice-of-life alone (1 of 1 checkable)
+  run.styleRanking = { total: 700, complete: true, lastCallId: "SYN-p14", checks: [...checks, { guess: "quiet", tag: "Quiet", searchCallId: "SYN-s4", rank: 30, affinity: 0.94, callId: "SYN-p1" }] };
+  assert.equal(verdict().verdict, "unverifiable");
+  assert.match(verdict().reason, /^mixed/);
+  run.styleRanking = { total: 700, complete: true, checks: [{ guess: "cute", searchCallId: "SYN-s3" }] };
   assert.equal(verdict().verdict, "unverifiable");
 });
 
@@ -848,10 +875,41 @@ test("gender and age reasons name the direction, not a signed value", () => {
   const run = state();
   run.assumptions = { age: { bands: ["24_and_younger"], note: "" }, gender: { lean: "female", note: "" }, lifeStage: { value: "" },
     aesthetic: { tags: [], note: "" }, likes: { note: "" }, trendDirection: { value: "flat" }, region: { states: [], note: "" } } satisfies AssumptionSheet;
-  run.demographics = { age: { "24_and_younger": -0.11 }, gender: { female: -0.2 }, callId: "SYN-demo" };
+  run.demographics = { age: { "24_and_younger": -0.11, "35_to_44": 0 }, gender: { female: -0.2 }, callId: "SYN-demo" };
   const r = computeVerdicts(run);
   assert.match(r.find((v) => v.field === "gender")!.reason, /toward men by 0\.2 /);
-  assert.match(r.find((v) => v.field === "age")!.reason, /under-represented by 0\.11 /);
+  assert.match(r.find((v) => v.field === "age")!.reason, /score 0\.11 below the other age groups/);
+});
+
+const sheet = (bands: AssumptionSheet["age"]["bands"], lean: AssumptionSheet["gender"]["lean"]): AssumptionSheet => ({
+  age: { bands, note: "" }, gender: { lean, note: "" }, lifeStage: { value: "" }, aesthetic: { tags: [], note: "" },
+  likes: { note: "" }, trendDirection: { value: "flat" }, region: { states: [], note: "" } });
+
+test("age is judged against the other bands of the same audience, not against zero", () => {
+  const run = state();
+  run.assumptions = sheet(["25_to_29"], "female");
+  // Every band is below the average audience; the guessed band is no lower than the rest.
+  run.demographics = { age: { "24_and_younger": -0.06, "25_to_29": -0.07, "35_to_44": -0.08 }, gender: {}, callId: "SYN-demo" };
+  const age = computeVerdicts(run).find((v) => v.field === "age")!;
+  assert.equal(age.verdict, "unverifiable");
+  assert.equal(age.claims.length, 3);
+});
+
+test("a lean that rests on one comparable is not established; one that survives says so", () => {
+  const run = state();
+  run.resolved = [1, 2, 3].map((k) => ({ name: `Synthetic comparable ${k}`, resolvedName: `Synthetic comparable ${k}`, kind: "book", idea: 0, entityId: `SYN-c${k}`, status: "found" })) as unknown as RunState["resolved"];
+  run.assumptions = sheet(["55_and_older"], "female");
+  const row = (k: number, female: number, old: number) => ({ entityId: `SYN-c${k}`, age: { "55_and_older": old, "24_and_younger": 0 }, gender: { female } });
+  // Gender: only comparable 3 leans to men. Age: all three lean young.
+  run.demographics = { age: { "55_and_older": -0.2, "24_and_younger": 0 }, gender: { female: -0.1 }, callId: "SYN-demo",
+    perEntity: [row(1, 0.01, -0.2), row(2, 0.0, -0.25), row(3, -0.31, -0.15)] };
+  const v = computeVerdicts(run);
+  const gender = v.find((x) => x.field === "gender")!, age = v.find((x) => x.field === "age")!;
+  assert.equal(gender.verdict, "unverifiable");
+  assert.equal(gender.stability?.dependsOn, "Synthetic comparable 3");
+  assert.match(gender.reason, /rests on one comparable/);
+  assert.equal(age.verdict, "refuted");
+  assert.deepEqual(age.stability, { held: true, comparables: 3 });
 });
 
 test("a multi-word comparable stays blocked even when the maker wrote it", () => {
@@ -862,11 +920,37 @@ test("a multi-word comparable stays blocked even when the maker wrote it", () =>
 });
 
 test("weight check counts the nearby weightings that keep the first idea first", () => {
-  const idea = (i: number, affinity: number, found: number, overlap = 0) =>
-    ({ idea: i, score: 0, formula: "", parts: { affinity, trend: 0, found, overlap }, missing: ["trend"], dontMake: false, dontMakeReason: null });
-  assert.deepEqual(weightCheck([idea(0, 0.9, 1), idea(1, 0.5, 0.5)], true), { held: 6, of: 6 });
-  // Ahead on affinity, behind on found: giving found more weight flips the order.
-  const close = weightCheck([idea(0, 0.9, 0.5), idea(1, 0.7, 0.75)], true);
+  const idea = (i: number, affinity: number, trend: number, overlap = 0) =>
+    ({ idea: i, score: 0, formula: "", parts: { affinity, trend, found: 1, overlap }, missing: [], dontMake: false, dontMakeReason: null });
+  // Without trend only the tag-similarity weight can move.
+  assert.deepEqual(weightCheck([idea(0, 0.9, 0), idea(1, 0.5, 0)], true), { held: 2, of: 2 });
+  assert.deepEqual(weightCheck([idea(0, 0.9, 0.9), idea(1, 0.5, 0.5)], false), { held: 6, of: 6 });
+  // Ahead on affinity, behind on trend: giving trend more weight flips the order.
+  const close = weightCheck([idea(0, 0.9, 0.4), idea(1, 0.62, 0.75)], false);
   assert.equal(close.of, 6);
   assert.ok(close.held < 6 && close.held > 0, JSON.stringify(close));
+});
+
+test("the share of comparables found gates an idea but never moves its score", () => {
+  const run = ranked([[0.8], [0.8]]);
+  // Idea 0: 1 of 1 found. Idea 1: 2 of 3 found. Same audience, so the same score and a tie.
+  run.resolved = [...run.resolved!, ...[1, 2].map((k) => ({ name: `Extra ${k}`, kind: "book", idea: 1, entityId: k === 1 ? "SYN-x" : undefined, status: k === 1 ? "found" : "not_found" }))] as unknown as RunState["resolved"];
+  const r = rankIdeas(run);
+  assert.deepEqual(r.map((x) => x.parts.found).sort(), [0.67, 1]);
+  assert.equal(r[0].score, r[1].score);
+  assert.deepEqual(r.map((x) => x.call), ["hold", "hold"]);
+});
+
+test("search tags that repeat a look Qloo challenged are dropped from the After draft", () => {
+  const looks = challengedLooks({ total: 867, complete: true, checks: [
+    { guess: "cozy", tag: "Cozy", searchCallId: "c7-a" },
+    { guess: "slice-of-life", tag: "Slice of life", searchCallId: "c7-b" },
+    { guess: "contemplative", tag: "contemplative", rank: 3, affinity: 0.99, callId: "c7-c" },
+    { guess: "Japanese" },
+  ] });
+  assert.deepEqual(looks, ["cozy", "Cozy", "slice-of-life", "Slice of life"]);
+  const r = dropChallengedTags(["slice of life illustrations", "cozy coloring pages", "contemplative coloring", "japan coloring book", "cozyish"], looks);
+  assert.deepEqual(r.tags, ["contemplative coloring", "japan coloring book", "cozyish"]);
+  assert.equal(r.notes.length, 2);
+  assert.deepEqual(challengedLooks(null), []);
 });

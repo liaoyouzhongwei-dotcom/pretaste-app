@@ -19,6 +19,7 @@ import {
   type IdeaScore,
   type NeighborEntity,
   type RunState,
+  type StyleRanking,
   type TasteTag,
   type Verdict,
 } from "./types";
@@ -42,6 +43,10 @@ export const THRESHOLDS = {
   minAffinity: 0.01,
   /** Top two ideas within this many points are too close to call. */
   tieMargin: 0.03,
+  /** A guessed look in the strongest quarter of these fans' style tags supports the guess. */
+  styleTop: 0.25,
+  /** In the weaker half of the list, or missing from a complete list, it challenges the guess. */
+  styleLow: 0.5,
 } as const;
 
 let claimSeq = 0;
@@ -169,6 +174,108 @@ export function likeCandidates(state: RunState, limit = 4): { item: string; hit:
     .slice(0, limit);
 }
 
+type DemoRow = NonNullable<NonNullable<RunState["demographics"]>["perEntity"]>[number];
+/** Leave-one-out over the comparables in the same demographics call: does the verdict survive dropping any one?
+ *  Needs 3+ comparables so at least two remain. Returns undefined when it cannot be tested. */
+export function leaveOneOut(
+  state: RunState,
+  verdict: Verdict,
+  measure: (rows: DemoRow[]) => number | undefined,
+  verdictOf: (x: number) => Verdict,
+): AssumptionVerdict["stability"] {
+  const rows = state.demographics?.perEntity ?? [];
+  if (rows.length < 3 || verdict === "unverifiable") return undefined;
+  for (let i = 0; i < rows.length; i++) {
+    const x = measure(rows.filter((_, j) => j !== i));
+    if (x === undefined || verdictOf(x) !== verdict) {
+      const r = (state.resolved ?? []).find((c) => c.entityId === rows[i].entityId);
+      return { held: false, comparables: rows.length, dependsOn: r?.resolvedName ?? r?.name ?? rows[i].entityId };
+    }
+  }
+  return { held: true, comparables: rows.length };
+}
+const meanOf = (xs: (number | undefined)[]): number | undefined => {
+  const v = xs.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined;
+};
+const restsOnOne = (s: NonNullable<AssumptionVerdict["stability"]>) =>
+  `; with "${s.dependsOn}" left out the lean no longer passes the threshold, so it rests on one comparable and is not established`;
+
+/** Each guessed look sits somewhere in the full ranked list of these fans' style tags, or is missing from it. */
+/** Looks Qloo challenged (in the weakest half, or missing from a complete list): guess and tag name. */
+export function challengedLooks(sr: StyleRanking | null | undefined): string[] {
+  if (!sr) return [];
+  return sr.checks.flatMap((c) => {
+    if (!c.tag) return [];
+    const low = c.rank ? c.rank / sr.total > THRESHOLDS.styleLow : sr.complete;
+    return low ? [c.guess, c.tag] : [];
+  });
+}
+
+/** Drops search tags that repeat a look Qloo challenged, so the After draft does not keep it. */
+export function dropChallengedTags(tags: string[], looks: string[]): { tags: string[]; notes: string[] } {
+  const norm = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const keys = [...new Set(looks.map(norm).filter((k) => k.trim()))];
+  const notes: string[] = [];
+  const kept = tags.filter((t) => {
+    const hit = keys.find((k) => norm(t).includes(k));
+    if (hit) notes.push(`listing: dropped tag "${t}" — repeats "${hit.trim()}", a look Qloo challenged for these fans`);
+    return !hit;
+  });
+  return { tags: kept, notes };
+}
+
+/** Qloo tag names sometimes carry trailing punctuation ("Colorful,"); text shows them without it. */
+const tagText = (t: string) => t.replace(/[\s,.;:]+$/, "");
+
+function judgeLooks(sr: StyleRanking, strongestText: string, strongestClaim: Claim[]): Omit<AssumptionVerdict, "field" | "assumed"> {
+  const total = sr.total;
+  const placed = sr.checks.map((c) => {
+    if (!c.tag) return { c, v: "none" as const };
+    if (c.rank) {
+      const share = c.rank / total;
+      return { c, v: share <= THRESHOLDS.styleTop ? ("high" as const) : share > THRESHOLDS.styleLow ? ("low" as const) : ("middle" as const) };
+    }
+    return { c, v: sr.complete ? ("missing" as const) : ("none" as const) };
+  });
+  const claims: Claim[] = placed.flatMap(({ c, v }) => {
+    if (c.rank && c.callId) return [claim(`"${c.guess}" is Qloo's style tag ${tagText(c.tag!)}: #${c.rank} of ${total} style tags for these fans (affinity ${c.affinity}).`, "qloo", [
+      { callId: c.callId, field: `tags.${c.tag}.rank`, value: c.rank },
+      { callId: sr.lastCallId ?? c.callId, field: "tags.style.total", value: total },
+      { callId: c.callId, field: `tags.${c.tag}.affinity`, value: c.affinity ?? null },
+    ])];
+    if (v === "missing" && c.searchCallId) return [claim(`Qloo has a style tag ${tagText(c.tag!)}, but it is not among the ${total} style tags it ties to these fans.`, "qloo", [
+      { callId: c.searchCallId, field: "results.tags.name", value: c.tag! },
+      { callId: sr.lastCallId ?? c.searchCallId, field: "tags.style.total", value: total },
+    ])];
+    return [];
+  });
+  claims.push(...strongestClaim);
+  const high = placed.filter((x) => x.v === "high"), low = placed.filter((x) => x.v === "low" || x.v === "missing");
+  const checkable = placed.filter((x) => x.v !== "none");
+  const none = placed.filter((x) => x.v === "none").map((x) => x.c.guess);
+  const midList = placed.filter((x) => x.v === "middle").map((x) => `${x.c.guess} is #${x.c.rank}`);
+  const midText = midList.length ? `; ${midList.join(", ")}, in the middle, so counted neither way` : "";
+  const noneText = none.length ? `; ${none.join(", ")} ${none.length > 1 ? "are not Qloo style tags" : "is not a Qloo style tag"}, so not checked` : "";
+  const scope = `the ${total} style tags Qloo ties to fans of the comparables`;
+  if (!checkable.length) return { verdict: "unverifiable", reason: `none of the guessed looks (${none.join(", ")}) is a Qloo style tag, so none could be checked; the strongest style tags are ${strongestText}`, claims };
+  const list = (xs: string[]) => xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] ?? "";
+  const ranked = (xs: typeof placed) => xs.map((x) => `${x.c.guess} is #${x.c.rank}`);
+  const describe = (xs: typeof placed) => {
+    const parts = [...ranked(xs.filter((x) => x.c.rank))];
+    const miss = xs.filter((x) => x.v === "missing").map((x) => x.c.guess);
+    if (miss.length) parts.push(`${list(miss)} ${miss.length > 1 ? "are" : "is"} not in the list at all`);
+    return parts.join("; ");
+  };
+  if (low.length * 2 > checkable.length && !high.length) {
+    return { verdict: "refuted", reason: `of ${scope}, ${describe(low)}${midText}${noneText}; the strongest are ${strongestText}`, claims };
+  }
+  if (high.length * 2 > checkable.length && !low.length) {
+    return { verdict: "supported", reason: `of ${scope}, ${describe(high)}, in the strongest quarter${midText}${noneText}`, claims };
+  }
+  return { verdict: "unverifiable", reason: `mixed: of ${scope}, ${describe(checkable)}${noneText}; the strongest are ${strongestText}`, claims };
+}
+
 function judge(state: RunState, field: AssumptionField): Omit<AssumptionVerdict, "field" | "assumed"> {
   const a = state.assumptions!;
   const unverifiable = (reason: string, claims: Claim[] = []): Omit<AssumptionVerdict, "field" | "assumed"> => ({
@@ -183,57 +290,72 @@ function judge(state: RunState, field: AssumptionField): Omit<AssumptionVerdict,
     case "age": {
       const d = state.demographics;
       if (!d) return unverifiable("No demographic signal returned.");
-      const ev: Evidence[] = a.age.bands
-        .filter((b) => typeof d.age[b] === "number")
-        .map((b) => ({ callId: d.callId, field: `age.${b}`, value: d.age[b] as number }));
-      if (ev.length === 0) return unverifiable("Guessed age bands not present in the signal.");
-      const mean = r2(ev.reduce((s, e) => s + (e.value as number), 0) / ev.length);
-      const top = (Object.entries(d.age) as [AgeBand, number][]).sort((x, y) => y[1] - x[1])[0];
-      const v = verdictBy(mean, THRESHOLDS.ageSkew);
-      const claims = [claim(`Mean skew of the guessed age bands is ${mean}.`, "qloo", ev)];
-      if (top) claims.push(claim(`Strongest band is ${top[0]} (${top[1]}).`, "qloo", [{ callId: d.callId, field: `age.${top[0]}`, value: top[1] }]));
-      return { verdict: v, reason: `the guessed age groups are ${mean < 0 ? "under" : "over"}-represented by ${Math.abs(mean)} on average compared with the average Qloo audience (beyond ±${THRESHOLDS.ageSkew} counts as a lean; taste affinity, not purchase intent)`, claims };
+      const all = (Object.entries(d.age) as [AgeBand, number][]).filter(([, x]) => typeof x === "number");
+      const guessedSet = new Set(a.age.bands);
+      const mineBands = all.filter(([b]) => guessedSet.has(b)), others = all.filter(([b]) => !guessedSet.has(b));
+      if (mineBands.length === 0) return unverifiable("Guessed age bands not present in the signal.");
+      if (others.length === 0) return unverifiable("The guess covers every age band, so there is nothing to compare it with.");
+      // Each band's skew is against the average Qloo audience. Compare the guessed bands with the
+      // other bands of the same audience, so an audience that is low everywhere does not refute every guess.
+      const rel = (ms: (number | undefined)[], os: (number | undefined)[]) => {
+        const m = meanOf(ms), o = meanOf(os);
+        return m === undefined || o === undefined ? undefined : r2(m - o);
+      };
+      const gap = rel(mineBands.map(([, x]) => x), others.map(([, x]) => x))!;
+      const v = verdictBy(gap, THRESHOLDS.ageSkew);
+      const evOf = (rows: [AgeBand, number][]): Evidence[] => rows.map(([b, x]) => ({ callId: d.callId, field: `age.${b}`, value: x }));
+      const top = [...all].sort((x, y) => y[1] - x[1])[0];
+      const claims = [
+        claim(`Mean skew of the guessed age bands is ${r2(meanOf(mineBands.map(([, x]) => x))!)}.`, "qloo", evOf(mineBands)),
+        claim(`Mean skew of the other age bands is ${r2(meanOf(others.map(([, x]) => x))!)}.`, "qloo", evOf(others)),
+        claim(`Strongest band is ${top[0]} (${top[1]}).`, "qloo", evOf([top])),
+      ];
+      const stability = leaveOneOut(state, v,
+        (rows) => rel(mineBands.map(([b]) => meanOf(rows.map((r) => r.age[b]))), others.map(([b]) => meanOf(rows.map((r) => r.age[b])))),
+        (x) => verdictBy(x, THRESHOLDS.ageSkew));
+      const reason = `the guessed age groups score ${Math.abs(gap)} ${gap < 0 ? "below" : "above"} the other age groups of the same audience (each against the average Qloo audience; a gap beyond ±${THRESHOLDS.ageSkew} counts as a lean; taste affinity, not purchase intent)`;
+      if (stability && !stability.held) return { verdict: "unverifiable", reason: reason + restsOnOne(stability), claims, stability };
+      return { verdict: v, reason, claims, ...(stability ? { stability } : {}) };
     }
     case "gender": {
       const d = state.demographics;
       const f = d?.gender.female;
       if (!d || typeof f !== "number") return unverifiable("No gender signal returned.");
       const ev: Evidence[] = [{ callId: d.callId, field: "gender.female", value: f }];
-      let v: Verdict;
-      if (a.gender.lean === "neutral") v = Math.abs(f) < THRESHOLDS.genderSkew ? "supported" : "refuted";
-      else v = verdictBy(a.gender.lean === "female" ? f : -f, THRESHOLDS.genderSkew);
-      return {
-        verdict: v,
-        reason: `the audience leans toward ${f < 0 ? "men" : "women"} by ${Math.abs(f)} compared with the average Qloo audience (beyond ±${THRESHOLDS.genderSkew} counts as a lean; taste affinity, not purchase intent)`,
-        claims: [claim(`Female skew of this audience is ${f}.`, "qloo", ev)],
-      };
+      const lean = a.gender.lean;
+      const genderVerdict = (x: number): Verdict =>
+        lean === "neutral" ? (Math.abs(x) < THRESHOLDS.genderSkew ? "supported" : "refuted") : verdictBy(lean === "female" ? x : -x, THRESHOLDS.genderSkew);
+      const v = genderVerdict(f);
+      const stability = leaveOneOut(state, v, (rows) => meanOf(rows.map((r) => r.gender.female)), genderVerdict);
+      const reason = `the audience leans toward ${f < 0 ? "men" : "women"} by ${Math.abs(f)} compared with the average Qloo audience (beyond ±${THRESHOLDS.genderSkew} counts as a lean; taste affinity, not purchase intent)`;
+      const claims = [claim(`Female skew of this audience is ${f}.`, "qloo", ev)];
+      if (stability && !stability.held) return { verdict: "unverifiable", reason: reason + restsOnOne(stability), claims, stability };
+      return { verdict: v, reason, claims, ...(stability ? { stability } : {}) };
     }
     case "lifeStage":
       return unverifiable("Qloo does not report life stage; kept as the agent's guess.");
     case "aesthetic": {
       const t = state.tasteTags;
-      if (!t?.tags.length) return unverifiable("Qloo returned no taste tags for these comparables.");
       const guessed = a.aesthetic.tags.map((g) => g.trim()).filter(Boolean);
       if (guessed.length === 0) return unverifiable("The guess names no look to check.");
+      const ev = (x: TasteTag): Evidence => ({ callId: x.callId, field: `tags.${x.name}.affinity`, value: x.affinity });
+      const styles = (t?.tags ?? []).filter((x) => x.kind === "style");
+      const strongest = (styles.length ? styles : t?.tags ?? []).slice(0, 4);
+      const strongestText = strongest.map((x) => x.name).join(", ");
+      const strongestClaim = strongest.length ? [claim(`Qloo's strongest style tags for these fans: ${strongestText}.`, "qloo", strongest.map(ev))] : [];
+      const sr = state.styleRanking;
+      if (sr?.checks.length && sr.total > 0) return judgeLooks(sr, strongestText, strongestClaim);
+      if (!t?.tags.length) return unverifiable("Qloo returned no taste tags for these comparables.");
+      // Fallback when the full list was not fetched: only the top tags are known, so a missing look is not refuted.
       const hits = guessed.map((g) => ({ g, tag: t.tags.find((x) => tagMatches(g, x.name)) }));
       const matched = hits.filter((x) => x.tag);
-      const ev = (x: TasteTag): Evidence => ({ callId: x.callId, field: `tags.${x.name}.affinity`, value: x.affinity });
-      const styles = t.tags.filter((x) => x.kind === "style");
-      const strongest = (styles.length ? styles : t.tags).slice(0, 4);
-      const strongestText = strongest.map((x) => x.name).join(", ");
-      const claims = [
-        ...matched.map((m) => claim(`"${m.g}" matches Qloo's tag ${m.tag!.name} (affinity ${r2(m.tag!.affinity)}).`, "qloo", [ev(m.tag!)])),
-        claim(`Qloo's strongest ${styles.length ? "style " : ""}tags for these fans: ${strongestText}.`, "qloo", strongest.map(ev)),
-      ];
+      const claims = [...matched.map((m) => claim(`"${m.g}" matches Qloo's tag ${m.tag!.name} (affinity ${r2(m.tag!.affinity)}).`, "qloo", [ev(m.tag!)])), ...strongestClaim];
       const missed = hits.filter((x) => !x.tag).map((x) => x.g);
       const scope = `the ${t.tags.length} style and topic tags Qloo most ties to fans of the comparables`;
-      if (matched.length === 0) {
-        return { verdict: "refuted", reason: `none of the guessed looks (${guessed.join(", ")}) is among ${scope}; the strongest style tags are ${strongestText}`, claims };
-      }
-      if (matched.length * 2 >= guessed.length) {
+      if (matched.length && matched.length * 2 >= guessed.length) {
         return { verdict: "supported", reason: `${matched.length} of ${guessed.length} guessed looks are among ${scope}${missed.length ? `; not found: ${missed.join(", ")}` : ""}`, claims };
       }
-      return unverifiable(`Mixed: only ${matched.map((m) => m.g).join(", ")} of the guessed looks is among ${scope}; ${missed.join(", ")} ${missed.length > 1 ? "are" : "is"} not. The strongest style tags are ${strongestText}.`, claims);
+      return unverifiable(`${matched.length ? `Only ${matched.map((m) => m.g).join(", ")}` : "None"} of the guessed looks is among ${scope}. Not counted as refuted: only the top tags were fetched. The strongest style tags are ${strongestText}.`, claims);
     }
     case "likes": {
       const mine = focusResolved(state);
@@ -315,9 +437,11 @@ export function computeVerdicts(state: RunState): AssumptionVerdict[] {
 }
 
 /** Step 9: rank ideas. A part with no signal adds 0 points (never a neutral guess). */
-export const RANK_FORMULA = "0.4·affinity + 0.3·trend + 0.3·found − 0.2·tag similarity";
-/** Used when Qloo returned no trend for any idea (trend dropped, the rest rescaled by 1/0.7). */
-export const RANK_FORMULA_NO_TREND = "(0.4·affinity + 0.3·found) ÷ 0.7 − 0.2·tag similarity (no trend data for any idea)";
+// How many comparables were found is a gate (under half found = not ranked), never a weight:
+// otherwise two ideas with the same audience would be separated by search luck.
+export const RANK_FORMULA = "(0.4·affinity + 0.3·trend) ÷ 0.7 − 0.2·tag similarity";
+/** Used when Qloo returned no trend for any idea. */
+export const RANK_FORMULA_NO_TREND = "affinity − 0.2·tag similarity (no trend data for any idea)";
 
 export function rankIdeas(state: RunState): IdeaScore[] {
   const n = state.input.ideas.length;
@@ -356,8 +480,8 @@ export function rankIdeas(state: RunState): IdeaScore[] {
     const overlap = Math.max(0, ...(state.compare ?? []).filter((c) => c.ideaA === idea || c.ideaB === idea).map((c) => c.overlap));
     // Without trend for every idea, trend cannot separate them: drop it and rescale the rest to 0–1.
     const score = noTrend
-      ? r2((0.4 * affinity + 0.3 * found) / 0.7 - 0.2 * overlap)
-      : r2(0.4 * affinity + 0.3 * trend + 0.3 * found - 0.2 * overlap);
+      ? r2(affinity - 0.2 * overlap)
+      : r2((0.4 * affinity + 0.3 * trend) / 0.7 - 0.2 * overlap);
 
     const checkedN = mine.filter((r) => r.status !== "failed" && r.status !== "unprocessed").length;
     const onHold = checkedN < mine.length || failedComparisons.length > 0;
@@ -397,11 +521,11 @@ export function rankIdeas(state: RunState): IdeaScore[] {
 
 /** Moves each weight up and down by 0.1 and counts the weightings that keep the same idea first. */
 export function weightCheck(scored: IdeaScore[], noTrend: boolean): { held: number; of: number } {
-  const base = { affinity: 0.4, trend: 0.3, found: 0.3, overlap: 0.2 };
-  const keys = (noTrend ? ["affinity", "found", "overlap"] : ["affinity", "trend", "found", "overlap"]) as (keyof typeof base)[];
+  const base = { affinity: 0.4, trend: 0.3, overlap: 0.2 };
+  const keys = (noTrend ? ["overlap"] : ["affinity", "trend", "overlap"]) as (keyof typeof base)[];
   const score = (p: IdeaScore["parts"], w: typeof base) => noTrend
-    ? (w.affinity * p.affinity + w.found * p.found) / (w.affinity + w.found) - w.overlap * p.overlap
-    : w.affinity * p.affinity + w.trend * p.trend + w.found * p.found - w.overlap * p.overlap;
+    ? p.affinity - w.overlap * p.overlap
+    : (w.affinity * p.affinity + w.trend * p.trend) / (w.affinity + w.trend) - w.overlap * p.overlap;
   let held = 0, of = 0;
   for (const k of keys) for (const d of [-0.1, 0.1]) {
     const w = { ...base, [k]: r2(base[k] + d) };
@@ -496,7 +620,7 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
     if (r === top) {
       if (wrong.length && r.idea === state.focusIdea) {
         r.call = "fix";
-        r.callReason = `Ranks first on Qloo's taste signals, but Qloo challenged its ${wrong.join(", ")} guess${wrong.length > 1 ? "es" : ""}: revise those, then research it.`;
+        r.callReason = `${second ? `Leads the next idea by ${pts(top.score - second.score)} points on Qloo affinity` : "Ranks first on Qloo affinity"}, but Qloo challenged its ${wrong.join(", ")} guess${wrong.length > 1 ? "es" : ""}: revise those, then research it.`;
       } else {
         r.call = "make";
         r.callReason = second ? `Leads the next idea by ${pts(top.score - second.score)} points on the same signals.` : `The only idea above the ${pts(THRESHOLDS.dontMake)}-point line.`;

@@ -18,10 +18,10 @@ import { MODELS, qlooMode } from "./config";
 import { buildCommit } from "./build-info";
 import { checkPractical } from "./practical";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables, rephraseQuery, type LlmResult } from "./llm/tasks";
-import { compareGroups, demographics, heatmap, tasteTags, isFiniteNumber, KIND_TO_URN, neighbors, sameEntityName, searchEntity, trending } from "./qloo/endpoints";
+import { compareGroups, demographics, heatmap, tasteTags, styleTagNamed, sameTagName, TAG_PAGE, isFiniteNumber, KIND_TO_URN, neighbors, sameEntityName, searchEntity, trending } from "./qloo/endpoints";
 import { describeQlooError, QlooError, TRENDING_TYPES, type QlooEntityType } from "./qloo/types";
-import { computeVerdicts, likeCandidates, rankIdeas } from "./rules";
-import { FOCUS_IDEA, type ComparableKind, type NeighborEntity, type ProductInput, type ResolvedComparable, type RunState, type Source } from "./types";
+import { challengedLooks, computeVerdicts, dropChallengedTags, likeCandidates, rankIdeas } from "./rules";
+import { FOCUS_IDEA, type AestheticCheck, type ComparableKind, type NeighborEntity, type StyleRanking, type ProductInput, type ResolvedComparable, type RunState, type Source } from "./types";
 
 export const LAST_STEP = 10;
 
@@ -83,6 +83,39 @@ function applyLlm<T>(state: RunState, step: number, r: LlmResult<T>): T {
 /** Throws a plain Error when prerequisites are missing (client bug or tampering). */
 function need(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
+}
+
+/** Pages through every style tag Qloo ties to these fans and finds where each guessed look sits.
+ *  A guess is first matched to a Qloo style tag of the same name, so no word matching is involved. */
+async function rankGuessedLooks(
+  ids: string[],
+  guesses: string[],
+  first: Awaited<ReturnType<typeof tasteTags>>,
+  calls: (rec: CallRecord) => void,
+): Promise<StyleRanking> {
+  const named = await Promise.all(guesses.map((g) => styleTagNamed(g, 7)));
+  named.forEach((n) => calls(n.record));
+  const checks: AestheticCheck[] = guesses.map((guess, i) => ({ guess, ...(named[i].name ? { tag: named[i].name! } : {}), searchCallId: named[i].record.callId }));
+  const pages = [{ tags: first.tags, callId: first.record.callId }];
+  let complete = first.tags.length < TAG_PAGE;
+  // Up to 20 pages (1,000 tags), four at a time. The first short or empty page is the end of the list.
+  if (checks.some((c) => c.tag)) {
+    for (let p = 2; !complete && p <= 20; p += 4) {
+      const batch = await Promise.all([p, p + 1, p + 2, p + 3].filter((x) => x <= 20).map((x) => tasteTags(ids, "style", 7, x)));
+      for (const b of batch) {
+        if (complete) break;
+        calls(b.record);
+        pages.push({ tags: b.tags, callId: b.record.callId });
+        if (b.tags.length < TAG_PAGE) complete = true;
+      }
+    }
+  }
+  const all = pages.flatMap((pg) => pg.tags.map((t) => ({ ...t, callId: pg.callId })));
+  for (const c of checks) {
+    const i = c.tag ? all.findIndex((t) => sameTagName(t.name, c.tag!)) : -1;
+    if (i >= 0) Object.assign(c, { rank: i + 1, affinity: all[i].affinity, callId: all[i].callId });
+  }
+  return { total: all.length, complete, lastCallId: pages[pages.length - 1].callId, checks };
 }
 
 async function runQloo(state: RunState, step: number, fn: () => Promise<void>): Promise<void> {
@@ -299,12 +332,13 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
           const d = await demographics(ids, 3);
           if (d) {
             calls(d.record);
-            state.demographics = { age: d.age, gender: d.gender, callId: d.record.callId };
+            state.demographics = { age: d.age, gender: d.gender, callId: d.record.callId, perEntity: d.perEntity };
           }
         });
       }
       state.heatmap = [];
       state.tasteTags = null;
+      state.styleRanking = null;
       delete state.likeEntities;
       if (ids.length === 0) {
         state.decisions.push({ step: 7, kind: "skip", detail: `no comparables were found for idea ${state.focusIdea + 1}; regions skipped` });
@@ -326,6 +360,8 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
           ...topic.tags.slice(0, 25).map((t) => ({ ...t, callId: topic.record.callId })),
         ];
         state.tasteTags = tags.length ? { tags } : null;
+        const guesses = (state.assumptions?.aesthetic.tags ?? []).map((g) => g.trim()).filter(Boolean).slice(0, 4);
+        if (guesses.length) state.styleRanking = await rankGuessedLooks(ids, guesses, style, calls);
       });
       // A3: a guessed like counts only when Qloo resolves the item as written to the neighbour's own entity.
       // The maker's named likes go through the same id check (improvement 3).
@@ -382,7 +418,8 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         listingNames(state),
         state.input.ideas[state.focusIdea],
       );
-      state.groundedListing = names.listing;
+      const looks = dropChallengedTags(names.listing.tags, challengedLooks(state.styleRanking));
+      state.groundedListing = { ...names.listing, tags: looks.tags };
       const practical = v.practical && state.ranking?.some((r) => r.onHold)
         ? { ...v.practical, tieBreak: null } : v.practical;
       state.practical = checkPractical(practical, state.input.ideas.length, state.ranking ?? [], state.input.priceUsd);
@@ -390,12 +427,13 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
       state.checker = {
         downgraded: check.downgraded.length,
         dropped: check.dropped.length,
-        listingFixes: listing.notes.length + names.notes.length + (state.beforeListingNotes?.[state.focusIdea]?.length ?? 0),
+        listingFixes: listing.notes.length + names.notes.length + looks.notes.length + (state.beforeListingNotes?.[state.focusIdea]?.length ?? 0),
         notes: [
           ...check.downgraded.map((d) => `downgraded: "${d.claim.text}" — ${d.reason}`),
           ...check.dropped.map((d) => `dropped: "${d.claim.text}" — ${d.reason}`),
           ...listing.notes,
           ...names.notes,
+          ...looks.notes,
           ...(state.beforeListingNotes?.[state.focusIdea] ?? []),
         ],
       };

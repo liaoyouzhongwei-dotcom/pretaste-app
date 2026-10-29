@@ -108,6 +108,8 @@ export interface DemographicSkew {
   age: Partial<Record<AgeBand, number>>;
   gender: { female?: number; male?: number };
   callId: string;
+  /** The same call's per-comparable rows, used to test whether a verdict depends on one comparable. */
+  perEntity?: { entityId: string; age: Partial<Record<AgeBand, number>>; gender: { female?: number; male?: number } }[];
 }
 
 export interface NeighborEntity {
@@ -158,6 +160,28 @@ export interface TasteTags {
   tags: TasteTag[];
 }
 
+/** One guessed look, looked up as a Qloo style tag and ranked among every style tag Qloo ties to these fans. */
+export interface AestheticCheck {
+  guess: string;
+  /** Qloo style tag with the same name (from /v2/tags); absent when Qloo has none. */
+  tag?: string;
+  searchCallId?: string;
+  /** Place in the full ranked list, 1 = strongest; absent when the tag is not in it. */
+  rank?: number;
+  affinity?: number;
+  callId?: string;
+}
+
+export interface StyleRanking {
+  /** Style tags Qloo ties to fans of the comparables, counted over every page. */
+  total: number;
+  /** True when the last page was reached, so a tag missing from the list is missing for these fans. */
+  complete: boolean;
+  /** Call that returned the last page (receipt for the total). */
+  lastCallId?: string;
+  checks: AestheticCheck[];
+}
+
 export interface HeatRegion {
   region: string;
   score: number;
@@ -172,6 +196,8 @@ export interface AssumptionVerdict {
   verdict: Verdict;
   reason: string;
   claims: Claim[];
+  /** Leave-one-out check over the comparables (age and gender only): did the verdict hold with each one left out? */
+  stability?: { held: boolean; comparables: number; dependsOn?: string };
 }
 
 export interface IdeaScore {
@@ -278,6 +304,8 @@ export interface RunState {
   heatmap?: HeatRegion[];
   /** step 7: taste tags Qloo ties to the fans of the focus idea's comparables, strongest first. */
   tasteTags?: TasteTags | null;
+  /** step 7: the guessed looks ranked among every style tag of these fans. */
+  styleRanking?: StyleRanking | null;
   /** step 7: identity check of the guessed likes that name a top neighbour (A3). */
   likeEntities?: LikeEntity[];
   /** step 8 */
