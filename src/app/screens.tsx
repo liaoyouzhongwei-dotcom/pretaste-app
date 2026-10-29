@@ -103,8 +103,8 @@ export function plainWhy(v: AssumptionVerdict): string {
   if (v.field === "age") {
     const top = ev.filter(e => e.field.startsWith("age.") && typeof e.value === "number").sort((a, b) => (b.value as number) - (a.value as number))[0];
     const band = top ? readable(top.field.slice(4)) : null;
-    if (band && !guessed.includes(band)) return `You guessed ${guessed}. Qloo's comparable audience leans away from those ages; its strongest age group is ${band}.`;
-    return `You guessed ${guessed}. Qloo's comparable audience leans away from those ages.`;
+    if (band && !guessed.includes(band)) return `You guessed ${guessed}. On balance, Qloo's comparable audience sits below average in those ages; its strongest age group is ${band}.`;
+    return `You guessed ${guessed}. On balance, Qloo's comparable audience sits below average in those ages.`;
   }
   if (v.field === "gender") {
     const f = ev.find(e => e.field === "gender.female")?.value;
@@ -155,7 +155,7 @@ export function ChangeSummary({ run }: { run: RunState }) {
     <div className="summary-head"><div className="summary-title"><p className="summary-idea">Idea {run.focusIdea + 1} · {run.input.ideas[run.focusIdea]}</p><h2>{headline}</h2><p className="summary-sub">{checked.length} of {verdicts.length} assumptions could be checked against a signal. Taste signals guide your next experiment; they do not predict purchases.</p></div>
       <dl className="summary-counts">{[{ v: "refuted" as const, n: challenged.length }, { v: "supported" as const, n: supported.length }, { v: "unverifiable" as const, n: verdicts.length - checked.length }].map(x => <div key={x.v} className={`count count-${x.v}`}><dt>{VERDICT_WORD[x.v]}</dt><dd>{x.n}</dd></div>)}</dl></div>
     <div className="summary-finding"><p className="summary-label">{challenged.length ? "The reason to rethink" : "What the check established"}</p><ul>{rows.map(r => <li key={r.key}><span className="summary-field">{r.field}</span><p>{r.text}</p>{r.ev && <EvidenceChip callId={r.ev.callId} field={r.ev.field} value={r.ev.value} />}</li>)}</ul></div>
-    <div className="summary-drafts">{[{ label: s.noModel ? "Before · your original words" : "Before · model assumptions", draft: s.before }, { label: s.hasEvidence ? "After · informed by taste signals" : "After · draft awaiting evidence", draft: s.after }].map((item, i) => <div key={i} className={i ? "draft-after" : "draft-before"}><p className="summary-label">{item.label}</p><p className="draft-title">{i && item.draft.title && s.before.title ? <MarkedTitle before={s.before.title} after={item.draft.title} /> : item.draft.title || "Title withheld · generic wording needed"}</p>{i === 1 && s.hasEvidence && challenged.length > 0 && <p className="draft-why">Changed because: {challenged.map(v => ASSUMPTION_LABELS[v.field]).join(", ")}</p>}</div>)}</div>
+    <div className="summary-drafts">{[{ label: s.noModel ? "Before · your original words" : "Before · model assumptions", draft: s.before }, { label: s.hasEvidence ? "After · informed by taste signals" : "After · draft awaiting evidence", draft: s.after }].map((item, i) => <div key={i} className={i ? "draft-after" : "draft-before"}><p className="summary-label">{item.label}</p><p className="draft-title">{i && item.draft.title && s.before.title ? <MarkedTitle before={s.before.title} after={item.draft.title} /> : item.draft.title || "Title withheld · generic wording needed"}</p>{i === 1 && s.hasEvidence && challenged.length > 0 && <p className="draft-why">Rewritten after Qloo challenged: {challenged.map(v => ASSUMPTION_LABELS[v.field]).join(", ")}</p>}</div>)}</div>
     {(s.more > 0 || s.call) && <div className="summary-next">{s.call && <p><span className="summary-label">Next step</span><span className="summary-call">{s.call}</span></p>}{s.more > 0 && <p className="summary-label">{plural(s.more, "more challenged assumption")} in the Assumptions tab.</p>}</div>}
   </section>;
 }
