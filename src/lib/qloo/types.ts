@@ -50,7 +50,7 @@ export interface QlooInsightsResponse {
       location?: { latitude?: number; longitude?: number; geohash?: string; label?: string };
       query?: { affinity?: number; popularity?: number };
     }[];
-    tags?: { tag_id?: string; name?: string; query?: { affinity?: number } }[];
+    tags?: { tag_id?: string; name?: string; type?: string; subtype?: string; query?: { affinity?: number } }[];
   };
 }
 

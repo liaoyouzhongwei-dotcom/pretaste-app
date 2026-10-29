@@ -94,6 +94,19 @@ function insights(params: Record<string, string>): QlooInsightsResponse {
     };
   }
 
+  if (type === "urn:tag") {
+    const style = (params["filter.tag.types"] ?? "").includes("style");
+    const pool = style
+      ? ["Whimsical", "Contemplative", "Heartwarming", "Nostalgic", "Cozy", "Minimalist", "Dreamy", "Dark", "Epic", "Retro"]
+      : ["Food", "Village", "Everyday life", "Japanese", "Travel", "Family", "Cats", "Festival", "City", "School"];
+    const subtype = style ? "urn:tag:style:qloo" : "urn:tag:keyword:media";
+    const picks = [...pool].sort((a, b) => h(seed + a) - h(seed + b)).slice(0, 8);
+    return {
+      success: true,
+      results: { tags: picks.map((name, i) => ({ tag_id: `${subtype}:${name.toLowerCase()}`, name, type: "urn:tag", subtype, query: { affinity: round(0.99 - i * 0.01) } })) },
+    };
+  }
+
   if (type === "urn:heatmap") {
     const picks = [...STATES].sort((a, b) => h(seed + a) - h(seed + b)).slice(0, 6);
     return {

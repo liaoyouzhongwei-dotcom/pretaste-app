@@ -7,7 +7,7 @@ import * as clock from "./date";
 import * as client from "./llm/client";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables } from "./llm/tasks";
 import { checkListingNames, listingNames } from "./listing-names";
-import { computeVerdicts, guessedLikes, likeMatches, rankIdeas, sameProductIdeas } from "./rules";
+import { computeVerdicts, guessedLikes, likeMatches, rankIdeas, sameProductIdeas, tagMatches } from "./rules";
 import { checkMakerAssumptions, preserveMakerNotes } from "./maker-assumptions";
 import { checkClaims } from "./claims";
 import { checkPractical, joinRisks } from "./practical";
@@ -148,7 +148,7 @@ test("focus selection uses the ranked idea for audience calls, verdicts, evidenc
   assert.equal(result.blindListing?.title, "Travel journal");
   assert.equal(result.neighbors?.[0].entityId, "SYN-neighbor-1");
   const audienceCalls = result.calls.filter((c) => c.step === 3 || c.step === 7);
-  assert.equal(audienceCalls.length, 2);
+  assert.equal(audienceCalls.length, 4); // demographics, heatmap, style tags, topic tags
   assert.ok(audienceCalls.every((c) => c.params["signal.interests.entities"] === "SYN-comparable-1"));
   result = await runStep(8, result);
   result = await runStep(9, result);
@@ -369,6 +369,40 @@ test("neighbours returned without affinity scores are not reported as no neighbo
   assert.match(r.dontMakeReason ?? "", /returned 10 taste neighbour\(s\) but none had an affinity score/);
   assert.doesNotMatch(r.dontMakeReason ?? "", /no taste neighbours/);
   assert.match(rankIdeas(ranked([[], [0.5]])).find((x) => x.idea === 0)!.dontMakeReason ?? "", /no taste neighbours/);
+});
+
+test("an idea with no taste signal is held as not ranked and listed after the scored ideas; gaps read in points", () => {
+  const run = ranked([[], [0.7], [0.5]]);
+  run.ideaNeighbors![0].returned = 10;
+  const r = rankIdeas(run);
+  assert.deepEqual(r.map((x) => [x.idea, x.call, !!x.unranked]), [[1, "make", false], [2, "skip", false], [0, "hold", true]]);
+  assert.match(r[0].callReason ?? "", /by \d+ points/);
+  assert.match(r[1].callReason ?? "", /35-point line, \d+ points behind #1/);
+  assert.doesNotMatch(r.map((x) => x.callReason).join(" "), /0\.\d/);
+});
+
+test("a guessed look is checked against Qloo's taste tags: whole words or a 5-letter stem, never a lone generic tag", () => {
+  assert.equal(tagMatches("Japanese", "japanese drama"), true);
+  assert.equal(tagMatches("japan", "Japanese"), true);
+  assert.equal(tagMatches("nostalgic", "Nostalgia-Infused"), true);
+  assert.equal(tagMatches("slice-of-life", "Life"), false);
+  assert.equal(tagMatches("cozy", "Cozy Mystery"), true);
+  assert.equal(tagMatches("cozy", "Crazy"), false);
+  const run = state();
+  run.assumptions = { age: { bands: [], note: "" }, gender: { lean: "neutral", note: "" }, lifeStage: { value: "" },
+    aesthetic: { tags: ["cozy", "slice-of-life", "Japanese"], note: "" }, likes: { note: "" }, trendDirection: { value: "flat" }, region: { states: [], note: "" } } satisfies AssumptionSheet;
+  const tags = (names: string[]) => ({ tags: names.map((name, i) => ({ name, kind: "style", affinity: 0.99 - i / 100, callId: "SYN-tags" })) });
+  const verdict = () => computeVerdicts(run).find((x) => x.field === "aesthetic")!;
+  run.tasteTags = tags(["Contemplative", "japanese drama", "Subtle"]);
+  assert.equal(verdict().verdict, "unverifiable");
+  assert.match(verdict().reason, /^Mixed: only Japanese/);
+  run.tasteTags = tags(["Cozy Atmosphere", "japan", "Subtle"]);
+  assert.equal(verdict().verdict, "supported");
+  run.tasteTags = tags(["Darkly Comedic", "Epic", "Violent"]);
+  assert.equal(verdict().verdict, "refuted");
+  assert.ok(verdict().claims.every((c) => c.evidence.every((e) => e.callId === "SYN-tags")));
+  run.tasteTags = null;
+  assert.equal(verdict().verdict, "unverifiable");
 });
 
 test("when #1 must be fixed first, the next idea is not told to make #1 first (M4 c)", () => {

@@ -18,7 +18,7 @@ import { MODELS, qlooMode } from "./config";
 import { buildCommit } from "./build-info";
 import { checkPractical } from "./practical";
 import { buildEvidence, step0Blind, step10Grounded, step1Comparables, rephraseQuery, type LlmResult } from "./llm/tasks";
-import { compareGroups, demographics, heatmap, isFiniteNumber, KIND_TO_URN, neighbors, sameEntityName, searchEntity, trending } from "./qloo/endpoints";
+import { compareGroups, demographics, heatmap, tasteTags, isFiniteNumber, KIND_TO_URN, neighbors, sameEntityName, searchEntity, trending } from "./qloo/endpoints";
 import { describeQlooError, QlooError, TRENDING_TYPES, type QlooEntityType } from "./qloo/types";
 import { computeVerdicts, likeCandidates, rankIdeas } from "./rules";
 import { FOCUS_IDEA, type ComparableKind, type NeighborEntity, type ProductInput, type ResolvedComparable, type RunState, type Source } from "./types";
@@ -303,6 +303,7 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         });
       }
       state.heatmap = [];
+      state.tasteTags = null;
       delete state.likeEntities;
       if (ids.length === 0) {
         state.decisions.push({ step: 7, kind: "skip", detail: `no comparables were found for idea ${state.focusIdea + 1}; regions skipped` });
@@ -312,6 +313,18 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         const { regions, record } = await heatmap(ids, 7);
         calls(record);
         state.heatmap = regions.map((r) => ({ ...r, callId: record.callId }));
+      });
+      await runQloo(state, 7, async () => {
+        // The whole run state travels with every step request: keep the strongest 25 of each set.
+        const style = await tasteTags(ids, "style", 7);
+        calls(style.record);
+        const topic = await tasteTags(ids, "topic", 7);
+        calls(topic.record);
+        const tags = [
+          ...style.tags.slice(0, 25).map((t) => ({ ...t, callId: style.record.callId })),
+          ...topic.tags.slice(0, 25).map((t) => ({ ...t, callId: topic.record.callId })),
+        ];
+        state.tasteTags = tags.length ? { tags } : null;
       });
       // A3: a guessed like counts only when Qloo resolves the item as written to the neighbour's own entity.
       // The maker's named likes go through the same id check (improvement 3).

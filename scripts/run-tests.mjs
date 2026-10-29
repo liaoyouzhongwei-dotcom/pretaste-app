@@ -1,5 +1,5 @@
 /**
- * Runs the regression tests (src/lib/*.test.ts) with Node's test runner.
+ * Runs the regression tests (src/lib/*.test.ts, mcp/*.test.mjs) with Node's test runner.
  * jiti loads TypeScript and maps the "@/" import alias to ./src.
  *   npm test
  */
@@ -8,7 +8,11 @@ import { readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const src = resolve("src").split("\\").join("/");
-const files = readdirSync("src/lib").filter((f) => f.endsWith(".test.ts")).map((f) => join("src/lib", f));
+const files = [
+  ...readdirSync("src/lib").filter((f) => f.endsWith(".test.ts")).map((f) => join("src/lib", f)),
+  // MCP server (stdio protocol; no network).
+  join("mcp", "pretaste-mcp.test.mjs"),
+];
 const r = spawnSync(process.execPath, ["--import", "jiti/register", "--test", ...files], {
   stdio: "inherit",
   env: { ...process.env, JITI_ALIAS: JSON.stringify({ "@/": `${src}/` }) },

@@ -420,6 +420,10 @@ export function buildEvidence(state: RunState): EvidenceItem[] {
   for (const r of [...(state.heatmap ?? [])].sort((a, b) => b.score - a.score).slice(0, 3)) {
     push({ callId: r.callId, field: `heatmap.${r.region}`, value: r.score, label: `regional affinity: ${r.region}`, subject: r.region });
   }
+  const tags = state.tasteTags?.tags ?? [];
+  for (const tag of [...tags.filter((x) => x.kind === "style").slice(0, 6), ...tags.filter((x) => x.kind !== "style").slice(0, 6)]) {
+    push({ callId: tag.callId, field: `tags.${tag.name}.affinity`, value: tag.affinity, label: `taste tag (${tag.kind}): ${tag.name}`, subject: tag.name });
+  }
   return items;
 }
 
@@ -491,6 +495,10 @@ export async function step10Grounded(
           "state or age band), and copy any number exactly from the cited evidence. Your own reasoning goes in claims " +
           "of kind 'interpretation' with no numbers. The listing description must not state audience statistics. " +
           "Do not invent data or product specifications. Do not mention real people. " +
+          "Rewrite so the change is visible beyond the title: where a guess was challenged, the tags and the description " +
+          "must speak to the audience Qloo found instead, and use the 'taste tag' and 'also liked' evidence (what the fans " +
+          "of the comparables also like across books, film, TV and more) to choose the mood words and search tags, translated " +
+          "into generic words a buyer would type. Keep at most 2 tags from the blind listing. " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
           "wording if dates are not supplied. Do not put trademarks, named brands, franchises, comparable titles or their " +
           "abbreviations in title, tags or description. Evidence names are for analysis only. Use generic product terms. " +

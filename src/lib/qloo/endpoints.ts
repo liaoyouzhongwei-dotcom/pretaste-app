@@ -209,6 +209,37 @@ export async function heatmap(
   return { regions, record };
 }
 
+/**
+ * Tag kinds asked for, as two calls: the look and mood ("style"), and what the work is about.
+ * Place tags (payment cards, hotel stars) are left out. Checked live 2026-10-29: take above 50 is refused.
+ */
+export const TASTE_TAG_TYPES = {
+  style: ["urn:tag:style:qloo"],
+  topic: ["urn:tag:keyword:media", "urn:tag:genre:media", "urn:tag:theme:qloo", "urn:tag:subgenre:qloo"],
+} as const;
+
+/** The tags Qloo most ties to fans of these entities, strongest first. */
+export async function tasteTags(
+  entityIds: string[],
+  set: keyof typeof TASTE_TAG_TYPES,
+  step: number,
+): Promise<{ tags: { name: string; kind: string; affinity: number }[]; record: CallRecord }> {
+  const { data, record } = await qlooGet<QlooInsightsResponse>(
+    "/v2/insights",
+    {
+      "filter.type": "urn:tag",
+      "filter.tag.types": TASTE_TAG_TYPES[set].join(","),
+      "signal.interests.entities": entityIds.join(","),
+      take: "50",
+    },
+    { step, expect: ["results.tags"] },
+  );
+  const tags = (data.results?.tags ?? [])
+    .filter((t) => t.name?.trim())
+    .map((t) => ({ name: t.name!.trim(), kind: (t.subtype ?? t.type ?? "").split(":")[2] ?? "", affinity: round(t.query?.affinity ?? 0) }));
+  return { tags, record };
+}
+
 export function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }

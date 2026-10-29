@@ -27,7 +27,7 @@ npm run build        # production build
 npm run lint         # ESLint
 npm run typecheck    # TypeScript (generates Next route types first)
 npm run check-leaks  # scan the repo for keys and Qloo-response-like data
-npm test             # regression tests (src/lib/*.test.ts, Node test runner, no keys or network)
+npm test             # regression tests (src/lib/*.test.ts, mcp/*.test.mjs; Node test runner, no keys or network)
 ```
 
 Run the full pipeline against a server and save the result (no keys needed in mock/offline mode):
@@ -47,6 +47,14 @@ git config core.hooksPath .githooks
 
 For isolated local checkouts with linked dependencies outside the project, set
 `PRETASTE_WORKSPACE_ROOT` to the smallest common parent. Normal installs do not need it.
+
+## MCP
+
+Agents can call Pretaste before they make something. `mcp/pretaste-mcp.mjs` is a stdio MCP server with no dependencies and one tool, `pretaste_check`. It returns the verdicts, the ranking, the rewritten listing and a next step. Setup, schema and example: [mcp/README.md](mcp/README.md).
+
+```bash
+claude mcp add pretaste -- node /path/to/pretaste/mcp/pretaste-mcp.mjs
+```
 
 ## Environment variables
 
@@ -107,7 +115,12 @@ or durable exactly-once guarantee. A new UUID avoids matching an earlier attempt
 - Product specifications are distinct from audience measurements. Price claims must match the
   maker's input; cultural data cannot validate a price or guarantee product demand.
 
-Life stage and aesthetic assumptions are not validated by the current implementation. Regional
+The aesthetic guess is checked against the style and topic tags Qloo ties to fans of the
+comparables (`/v2/insights` with `filter.type=urn:tag`, two calls): at least half the guessed looks
+found is Supported, none found is Challenged, anything between is Not established. A guessed look
+matches a tag by whole words or a shared stem of 5+ letters; a one-word tag never matches a longer
+guess. Life stage is not validated: Qloo does not report it. Ideas with no taste signal at all are
+held as "Not ranked" instead of receiving a low score. Regional
 labels use an approximate US map. Validate the product, creative direction and price with real
 customers before investing in production.
 

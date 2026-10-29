@@ -145,6 +145,19 @@ export interface TrendPoint {
   callId: string;
 }
 
+export interface TasteTag {
+  name: string;
+  /** Qloo tag kind, e.g. "style", "theme", "keyword". */
+  kind: string;
+  affinity: number;
+  callId: string;
+}
+
+export interface TasteTags {
+  /** Style (look and mood) tags first, then topic tags; each set strongest first. */
+  tags: TasteTag[];
+}
+
 export interface HeatRegion {
   region: string;
   score: number;
@@ -173,6 +186,8 @@ export interface IdeaScore {
   dontMakeReason: string | null;
   /** true when Qloo stopped before all of this idea's comparables were checked: no verdict yet. */
   onHold?: boolean;
+  /** true when Qloo gave this idea no taste signal to score (no comparables found, or no affinity): held and listed after the scored ideas. */
+  unranked?: boolean;
   /** The call for this idea: make it, make it after fixing a wrong guess, skip it, or hold (not enough to decide). */
   call?: "make" | "fix" | "skip" | "hold";
   /** Why, in plain words. */
@@ -259,6 +274,8 @@ export interface RunState {
   trends?: TrendPoint[];
   /** step 7 (focus idea's comparables) */
   heatmap?: HeatRegion[];
+  /** step 7: taste tags Qloo ties to the fans of the focus idea's comparables, strongest first. */
+  tasteTags?: TasteTags | null;
   /** step 7: identity check of the guessed likes that name a top neighbour (A3). */
   likeEntities?: LikeEntity[];
   /** step 8 */

@@ -26,7 +26,7 @@ export interface Scenario {
 export const SCENARIOS: Scenario[] = [
   {
     id: "coloring-japan",
-    label: "Japan-themed coloring book",
+    label: "Everyday Japan (coloring book)",
     note: "Real product of ours (named generically).",
     input: {
       ideas: [
@@ -76,7 +76,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "family-binder",
-    label: "Family handover fillable PDF",
+    label: "The family handover (fillable PDF)",
     note: "Real product of ours (named generically).",
     input: {
       ideas: [
@@ -124,7 +124,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "comedian-merch",
-    label: "A new comedian's first merch (example)",
+    label: "Beyond the tour tee (example)",
     note: "Illustrative example. No real comedian is the subject; public works are used only as comparables.",
     input: {
       ideas: [

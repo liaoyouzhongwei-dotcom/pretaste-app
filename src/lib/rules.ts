@@ -11,6 +11,7 @@
 import type { Claim, Evidence } from "./claims";
 import {
   ASSUMPTION_FIELDS,
+  ASSUMPTION_LABELS,
   NO_GUESS_NOTE,
   type AgeBand,
   type AssumptionField,
@@ -18,6 +19,7 @@ import {
   type IdeaScore,
   type NeighborEntity,
   type RunState,
+  type TasteTag,
   type Verdict,
 } from "./types";
 
@@ -46,6 +48,31 @@ let claimSeq = 0;
 function claim(text: string, kind: Claim["kind"], evidence: Evidence[]): Claim {
   claimSeq += 1;
   return { id: `v${claimSeq}`, text, kind, evidence };
+}
+
+function tagWords(s: string): string[] {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+}
+
+const TAG_STOP = new Set(["a", "an", "the", "of", "and", "or", "with", "in", "on", "style", "aesthetic", "vibe", "vibes", "look"]);
+
+/**
+ * A guessed look matches a Qloo tag when every word of the guess is in the tag ("Japanese" / "japanese drama"),
+ * or a tag of two or more words is wholly in the guess. A one-word tag never matches a longer guess
+ * ("Life" is not "slice-of-life"). Words match exactly or by a shared stem of at least 5 letters
+ * ("japan" / "japanese", "nostalgic" / "nostalgia").
+ */
+export function tagMatches(guess: string, tag: string): boolean {
+  const g = tagWords(guess).filter((w) => !TAG_STOP.has(w)), t = tagWords(tag).filter((w) => !TAG_STOP.has(w));
+  if (!g.length || !t.length) return false;
+  const covers = (small: string[], large: string[]) => small.every((w) => large.some((v) => same(w, v)));
+  return covers(g, t) || (t.length >= 2 && covers(t, g));
+  function same(x: string, y: string): boolean {
+    if (x === y) return true;
+    let k = 0;
+    while (k < x.length && k < y.length && x[k] === y[k]) k++;
+    return k >= 5 && k >= Math.min(x.length, y.length) - 2;
+  }
 }
 
 function r2(n: number): number {
@@ -183,8 +210,31 @@ function judge(state: RunState, field: AssumptionField): Omit<AssumptionVerdict,
     }
     case "lifeStage":
       return unverifiable("Qloo does not report life stage; kept as the agent's guess.");
-    case "aesthetic":
-      return unverifiable("Qloo tag signal is not used for the look yet; kept as the agent's guess.");
+    case "aesthetic": {
+      const t = state.tasteTags;
+      if (!t?.tags.length) return unverifiable("Qloo returned no taste tags for these comparables.");
+      const guessed = a.aesthetic.tags.map((g) => g.trim()).filter(Boolean);
+      if (guessed.length === 0) return unverifiable("The guess names no look to check.");
+      const hits = guessed.map((g) => ({ g, tag: t.tags.find((x) => tagMatches(g, x.name)) }));
+      const matched = hits.filter((x) => x.tag);
+      const ev = (x: TasteTag): Evidence => ({ callId: x.callId, field: `tags.${x.name}.affinity`, value: x.affinity });
+      const styles = t.tags.filter((x) => x.kind === "style");
+      const strongest = (styles.length ? styles : t.tags).slice(0, 4);
+      const strongestText = strongest.map((x) => x.name).join(", ");
+      const claims = [
+        ...matched.map((m) => claim(`"${m.g}" matches Qloo's tag ${m.tag!.name} (affinity ${r2(m.tag!.affinity)}).`, "qloo", [ev(m.tag!)])),
+        claim(`Qloo's strongest ${styles.length ? "style " : ""}tags for these fans: ${strongestText}.`, "qloo", strongest.map(ev)),
+      ];
+      const missed = hits.filter((x) => !x.tag).map((x) => x.g);
+      const scope = `the ${t.tags.length} style and topic tags Qloo most ties to fans of the comparables`;
+      if (matched.length === 0) {
+        return { verdict: "refuted", reason: `none of the guessed looks (${guessed.join(", ")}) is among ${scope}; the strongest style tags are ${strongestText}`, claims };
+      }
+      if (matched.length * 2 >= guessed.length) {
+        return { verdict: "supported", reason: `${matched.length} of ${guessed.length} guessed looks are among ${scope}${missed.length ? `; not found: ${missed.join(", ")}` : ""}`, claims };
+      }
+      return unverifiable(`Mixed: only ${matched.map((m) => m.g).join(", ")} of the guessed looks is among ${scope}; ${missed.join(", ")} ${missed.length > 1 ? "are" : "is"} not. The strongest style tags are ${strongestText}.`, claims);
+    }
     case "likes": {
       const mine = focusResolved(state);
       const found = mine.filter((r) => r.entityId).length;
@@ -312,15 +362,19 @@ export function rankIdeas(state: RunState): IdeaScore[] {
     const checkedN = mine.filter((r) => r.status !== "failed" && r.status !== "unprocessed").length;
     const onHold = checkedN < mine.length || failedComparisons.length > 0;
     let dontMakeReason: string | null = null;
+    let unranked = false;
     if (failedComparisons.length) dontMakeReason = `On hold: Qloo comparison step(s) ${failedComparisons.join(", ")} failed or stopped partway; ${checkedN} of ${mine.length} planned comparables for this idea were checked (${foundN} found). The available scores are provisional, not evidence to make or reject an idea. Re-run before deciding.`;
     else if (onHold) dontMakeReason = `On hold: Qloo stopped partway, so only ${checkedN} of ${mine.length} planned comparables were checked (${foundN} found). Re-run before deciding.`;
-    else if (foundN === 0) dontMakeReason = "None of its comparables were found in Qloo, so nothing backs it.";
-    else if (found < THRESHOLDS.minFoundRatio) dontMakeReason = `Only ${foundN} of ${mine.length} comparables were found: too little evidence to recommend it.`;
-    else if (topOwn.length === 0) dontMakeReason = returnedN > 0
-      ? `Qloo returned ${returnedN} taste neighbour(s) but none had an affinity score, so this idea cannot be ranked on taste.`
-      : "Qloo returned no taste neighbours for it, so there is no audience to point at.";
+    else if (foundN === 0) { unranked = true; dontMakeReason = "Not ranked: none of its comparables were found in Qloo, so nothing backs it. Pick other comparables and run again."; }
+    else if (found < THRESHOLDS.minFoundRatio) { unranked = true; dontMakeReason = `Not ranked: only ${foundN} of ${mine.length} comparables were found, too little evidence to place it. Pick other comparables and run again.`; }
+    else if (topOwn.length === 0) {
+      unranked = true;
+      dontMakeReason = returnedN > 0
+        ? `Not ranked: Qloo returned ${returnedN} taste neighbour(s) but none had an affinity score, so this idea cannot be ranked on taste. Pick other comparables and run again.`
+        : "Not ranked: Qloo returned no taste neighbours for it, so there is no audience to point at. Pick other comparables and run again.";
+    }
     else if (affinity < THRESHOLDS.minAffinity) dontMakeReason = `Its taste signal is near zero (mean affinity ${affinity.toPrecision(2)} < ${THRESHOLDS.minAffinity}): finding the titles is not the same as an audience.`;
-    else if (score < THRESHOLDS.dontMake) dontMakeReason = `Score ${score} is below the ${THRESHOLDS.dontMake} line.`;
+    else if (score < THRESHOLDS.dontMake) dontMakeReason = `${pts(score)} / 100 is under the ${pts(THRESHOLDS.dontMake)}-point line, the lowest score worth researching.`;
 
     out.push({
       idea,
@@ -331,9 +385,11 @@ export function rankIdeas(state: RunState): IdeaScore[] {
       dontMake: dontMakeReason !== null,
       dontMakeReason,
       ...(onHold ? { onHold: true } : {}),
+      ...(unranked && !onHold ? { unranked: true } : {}),
     });
   }
-  out.sort((a, b) => b.score - a.score);
+  // Ideas with no taste signal have no comparable score: they go after every scored idea.
+  out.sort((a, b) => Number(!!a.unranked) - Number(!!b.unranked) || b.score - a.score);
   return assignCalls(state, out);
 }
 
@@ -368,6 +424,11 @@ export function sameProductIdeas(ideas: string[]): number[][] {
   );
 }
 
+/** A 0–1 score as points out of 100, the scale the screen shows. */
+function pts(v: number): number {
+  return Math.round(v * 100);
+}
+
 /** Make / fix / skip / hold for each ranked idea, with the reason. Only the top idea can be made. */
 function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
   const open = ranked.filter((r) => !r.dontMake);
@@ -385,7 +446,8 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
         continue;
       }
       r.call = "skip";
-      r.callReason = r.dontMake ? r.dontMakeReason ?? "" : `Above the line but behind ${names}, which can't be separated: settle those first.`;
+      if (r.unranked) { r.call = "hold"; r.callReason = r.dontMakeReason ?? ""; continue; }
+      r.callReason = r.dontMake ? r.dontMakeReason ?? "" : `Above the ${pts(THRESHOLDS.dontMake)}-point line but behind ${names}, which can't be separated: settle those first.`;
     }
     return ranked;
   }
@@ -397,36 +459,37 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
     : [];
   const tiedNames = tied.map((r) => `#${ranked.indexOf(r) + 1}`).join(", ");
   const wrong = [
-    ...(state.verdicts ?? []).filter((v) => v.verdict === "refuted").map((v) => v.field),
+    ...(state.verdicts ?? []).filter((v) => v.verdict === "refuted").map((v) => ASSUMPTION_LABELS[v.field].toLowerCase()),
     ...(state.makerAssumptionChecks ?? []).filter((c) => c.status === "contradicts").map((c) => `your note "${c.text}"`),
   ];
   for (const r of ranked) {
     if (r.onHold) { r.call = "hold"; r.callReason = r.dontMakeReason ?? "Not all comparables were checked."; continue; }
+    if (r.unranked) { r.call = "hold"; r.callReason = r.dontMakeReason ?? ""; continue; }
     if (r.dontMake) { r.call = "skip"; r.callReason = r.dontMakeReason ?? ""; continue; }
     if (tied.includes(r)) {
       r.call = "hold";
       const low = tied[tied.length - 1].score;
       r.callReason = tied.length > 2
-        ? `Too close to call: ideas ${tiedNames} score ${top.score} to ${low}, all under ${THRESHOLDS.tieMargin} apart from #1. The checks below use the first one; test them before choosing.`
-        : `Too close to call: ${top.score} vs ${second.score} is under ${THRESHOLDS.tieMargin} apart. The checks below use the first one; test both before choosing.`;
+        ? `Too close to call: ideas ${tiedNames} score ${pts(top.score)} to ${pts(low)}, all under ${pts(THRESHOLDS.tieMargin)} points from #1. The checks below use the first one; test them before choosing.`
+        : `Too close to call: ${pts(top.score)} vs ${pts(second.score)} is under ${pts(THRESHOLDS.tieMargin)} points apart. The checks below use the first one; test both before choosing.`;
       continue;
     }
     if (r === top) {
       if (wrong.length && r.idea === state.focusIdea) {
         r.call = "fix";
-        r.callReason = `Best supported, but fix what the data contradicts first: ${wrong.join(", ")}.`;
+        r.callReason = `Ranks first on Qloo's taste signals, but Qloo challenged its ${wrong.join(", ")} guess${wrong.length > 1 ? "es" : ""}: revise those, then research it.`;
       } else {
         r.call = "make";
-        r.callReason = second ? `Leads the next idea by ${r2(top.score - second.score)} on the same signals.` : "The only idea above the line.";
+        r.callReason = second ? `Leads the next idea by ${pts(top.score - second.score)} points on the same signals.` : `The only idea above the ${pts(THRESHOLDS.dontMake)}-point line.`;
       }
       continue;
     }
     r.call = "skip";
     r.callReason = tied.length
-      ? `Above the line but behind ${tiedNames}, which can't be separated: settle those first.`
+      ? `Above the ${pts(THRESHOLDS.dontMake)}-point line but behind ${tiedNames}, which can't be separated: settle those first.`
       : top.call === "fix"
-        ? `Above the line but behind #1 by ${r2(top.score - r.score)}: fix #1 first, then compare again.`
-        : `Above the line but behind #1 by ${r2(top.score - r.score)}: make #1 first.`;
+        ? `Above the ${pts(THRESHOLDS.dontMake)}-point line, ${pts(top.score - r.score)} points behind #1: fix #1 first, then compare again.`
+        : `Above the ${pts(THRESHOLDS.dontMake)}-point line, ${pts(top.score - r.score)} points behind #1: make #1 first.`;
   }
   return ranked;
 }
