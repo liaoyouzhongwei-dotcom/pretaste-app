@@ -74,6 +74,43 @@ function foundIds(state: RunState, idea: number = state.focusIdea): string[] {
   return (state.resolved ?? []).filter((r) => r.idea === idea).map((r) => r.entityId).filter((x): x is string => !!x);
 }
 
+/** Titles step 1 left out as off-subject for this idea, so a later round never suggests them again. */
+function leftOutNames(state: RunState, idea: number): string[] {
+  return state.decisions.filter((d) => d.step === 1 && d.kind === "skip" && d.detail.startsWith(`idea ${idea + 1}: left out "`))
+    .map((d) => d.detail.slice(d.detail.indexOf('"') + 1, d.detail.indexOf('"', d.detail.indexOf('"') + 1)));
+}
+
+/** Words about who buys; a tag carried over from the blind guess must not bring back an audience the data checked. */
+const AUDIENCE_WORD = /\b(?:women|woman|men|man|ladies|lady|girls?|boys?|moms?|mothers?|dads?|fathers?|teens?|teenagers?|kids?|children|seniors?|retirees?|grandmas?|grandpas?|her|him|his|hers|adults?|millennials?|boomers?|gen ?z)\b/i;
+
+/**
+ * Fill empty tag slots from the blind listing's plain product terms (Etsy allows 13, KDP 7).
+ * Each carried tag passes the same listing checks; audience words and challenged looks are never carried.
+ */
+export function fillTags(
+  tags: string[],
+  blindTags: string[],
+  marketplace: "etsy" | "kdp" | "other",
+  names: string[],
+  looks: string[],
+  allowed: number[] = [],
+): { tags: string[]; added: string[] } {
+  const max = marketplace === "kdp" ? 7 : 13;
+  if (tags.length >= max) return { tags, added: [] };
+  const plain = blindTags.filter((t) => !AUDIENCE_WORD.test(t));
+  const checked = checkListing({ title: "", description: "", tags: plain }, [], marketplace, allowed).tags;
+  const named = checkListingNames({ title: "", description: "", tags: checked, coverDirection: "" }, names).listing.tags;
+  const seen = new Set(tags.map((t) => t.toLowerCase()));
+  const added: string[] = [];
+  for (const t of dropChallengedTags(named, looks).tags) {
+    if (tags.length + added.length >= max) break;
+    if (seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    added.push(t);
+  }
+  return { tags: [...tags, ...added], added };
+}
+
 function applyLlm<T>(state: RunState, step: number, r: LlmResult<T>): T {
   state.sources[step] = r.source;
   if (r.note) state.errors.push({ step, message: r.note });
@@ -206,8 +243,7 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         const short = state.input.ideas.map((_, idea) => {
           const mine = resolved.filter((r) => r.idea === idea);
           const found = mine.filter((r) => r.entityId).length;
-          const leftOut = state.decisions.filter((d) => d.step === 1 && d.kind === "skip" && d.detail.startsWith(`idea ${idea + 1}: left out "`))
-            .map((d) => d.detail.slice(d.detail.indexOf('"') + 1, d.detail.indexOf('"', d.detail.indexOf('"') + 1)));
+          const leftOut = leftOutNames(state, idea);
           return { idea, notFound: mine.filter((r) => !r.entityId).map((r) => r.name), tried: [...mine.map((r) => r.name), ...leftOut],
             short: mine.length === 0 ? leftOut.length > 0 : found / mine.length < THRESHOLDS.minFoundRatio };
         }).filter((x) => x.short);
@@ -264,14 +300,38 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         for (let idea = 0; idea < state.input.ideas.length; idea++) {
           const ids = foundIds(state, idea);
           if (ids.length === 0) continue;
-          const { entities, record } = await neighbors(ids, neighbourType(state.input), 4);
+          let { entities, record } = await neighbors(ids, neighbourType(state.input), 4);
           calls(record);
           // A row without a positive affinity carries no taste signal (Qloo sometimes returns
           // unrelated popular titles with affinity 0); it is not evidence, so it is not kept.
-          const usable = entities.filter((e) => {
+          const hasAffinity = (e: (typeof entities)[number]) => {
             const aff = e.query?.affinity ?? 0;
-            return e.entity_id && e.name && isFiniteNumber(aff) && aff > 0;
-          });
+            return !!e.entity_id && !!e.name && isFiniteNumber(aff) && aff > 0;
+          };
+          let usable = entities.filter(hasAffinity);
+          // Agent decision: titles that were found but carry no taste data get one round of other titles,
+          // the same as titles that were not found. The silent ones stay listed as found.
+          if (usable.length === 0 && entities.length > 0) {
+            const mine = (state.resolved ?? []).filter((r) => r.idea === idea);
+            const silent = mine.filter((r) => r.entityId).map((r) => r.resolvedName ?? r.name);
+            const extra = (await replaceComparables(state.input, [{ idea, notFound: silent,
+              tried: [...mine.map((r) => r.name), ...leftOutNames(state, idea)] }])).value;
+            const added: string[] = [];
+            for (const c of extra) {
+              const { entity, record: found } = await searchEntity(c.name, c.kind, 4);
+              calls(found);
+              state.resolved!.push({ ...c, entityId: entity?.entity_id ?? null, resolvedName: entity?.name ?? null, rephrased: false,
+                callId: entity ? found.callId : null, status: entity ? "found" : "not_found", replacement: true });
+              state.comparables = [...(state.comparables ?? []), c];
+              if (entity?.entity_id) { added.push(entity.entity_id); nameById.set(entity.entity_id, entity.name ?? c.name); }
+            }
+            state.decisions.push({ step: 4, kind: "replace", detail: `idea ${idea + 1}: Qloo has no taste data on ${silent.map((x) => `"${x}"`).join(", ")}; searched ${extra.length} other title(s)${extra.length ? `: ${extra.map((x) => `"${x.name}"`).join(", ")}` : ""}, ${added.length} found` });
+            if (added.length) {
+              ({ entities, record } = await neighbors(added, neighbourType(state.input), 4));
+              calls(record);
+              usable = entities.filter(hasAffinity);
+            }
+          }
           if (usable.length < entities.length) {
             state.decisions.push({
               step: 4,
@@ -477,7 +537,9 @@ async function runOne(step: number, state: RunState): Promise<RunState> {
         state.input.ideas[state.focusIdea],
       );
       const looks = dropChallengedTags(names.listing.tags, challengedLooks(state.styleRanking));
-      state.groundedListing = { ...names.listing, tags: looks.tags };
+      const filled = fillTags(looks.tags, state.blindListing?.tags ?? [], state.input.marketplace, listingNames(state), challengedLooks(state.styleRanking), allowed);
+      if (filled.added.length) looks.notes.push(`listing: filled ${filled.added.length} empty tag slot(s) with plain product terms from the blind listing: ${filled.added.map((t) => `"${t}"`).join(", ")}`);
+      state.groundedListing = { ...names.listing, tags: filled.tags };
       const cannotCheck = (state.makerAssumptionChecks ?? []).flatMap((a, i) => (a.status === "cannot check" ? [i] : []));
       state.practical = checkPractical(v.practical, state.input.ideas.length, state.ranking ?? [], state.input.priceUsd, new Date(), cannotCheck, (state.makerAssumptionChecks ?? []).map((a) => a.text));
       state.groundedClaims = [...check.kept, ...check.downgraded.map((d) => d.claim)];

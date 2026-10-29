@@ -13,7 +13,7 @@ import { checkClaims } from "./claims";
 import { checkPractical, joinRisks } from "./practical";
 import { readable } from "./readable";
 import { looksPersonal } from "./personal";
-import { newRun, runStep } from "./pipeline";
+import { fillTags, newRun, runStep } from "./pipeline";
 import { provenanceLines } from "./provenance";
 import { searchEntity } from "./qloo/endpoints";
 import { synId } from "./qloo/mock";
@@ -856,6 +856,25 @@ test("a model answer with no usable comparable falls back to the offline list in
   }
   assert.notEqual(r.source, "llm");
   assert.ok(r.value.comparables.every((c) => c.name.trim() && c.idea >= 0 && c.idea < 2));
+});
+
+test("with no idea ranked for lack of data, the general-knowledge pick still says where to start; a stopped run does not", () => {
+  const row = (idea: number, extra: object) =>
+    ({ idea, score: 0, formula: "", parts: {}, missing: [], dontMake: true, dontMakeReason: "Not ranked", call: "hold" as const, callReason: "", ...extra });
+  const draft = { ideas: [], tieBreak: { idea: 1, why: "The data did not decide; idea 1 is less effort to make now." } };
+  const unranked = [row(0, { unranked: true }), row(1, { unranked: true })];
+  assert.equal(checkPractical(draft, 2, unranked, 5)?.tieBreak?.idea, 1);
+  const stopped = [row(0, { onHold: true }), row(1, { onHold: true })];
+  assert.equal(checkPractical(draft, 2, stopped, 5)?.tieBreak, null);
+});
+
+test("empty tag slots are filled from the blind listing's plain product terms, never audience words or challenged looks", () => {
+  const blind = ["pickleball scorecard", "pickleball score tracker", "gift for dad", "rustic score sheet", "match log", "Pickleball Scorecard", "league score pad"];
+  const r = fillTags(["match log", "court score sheet"], blind, "etsy", [], ["rustic"]);
+  assert.deepEqual(r.added, ["pickleball scorecard", "league score pad"]);
+  assert.equal(r.tags.length, 4);
+  const full = Array.from({ length: 7 }, (_, i) => `keyword ${i}`);
+  assert.deepEqual(fillTags(full, blind, "kdp", [], []).added, []);
 });
 
 test("outside-the-data notes keep only the maker's price and years as numbers; tie-break only for held ideas (preference A, B)", () => {

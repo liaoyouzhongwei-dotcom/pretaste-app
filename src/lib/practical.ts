@@ -13,10 +13,14 @@ interface Draft {
   notes?: { check: number; read: "likely right" | "likely wrong" | "unsure"; why: string }[];
 }
 
-/** Ideas the general-knowledge pick may choose from: none while the data names a first idea. */
+/**
+ * Ideas the general-knowledge pick may choose from: none while the data names a first idea.
+ * An idea not ranked for lack of data stays a candidate, so a run with too little data still says where to start
+ * (labelled as general knowledge). An idea on hold because Qloo stopped partway does not: that run should be redone.
+ */
 export function startCandidates(ranking: IdeaScore[]): number[] {
   if (ranking.some((r) => r.call === "make" || r.call === "fix")) return [];
-  const open = ranking.filter((r) => !r.dontMake && r.call !== "skip").map((r) => r.idea);
+  const open = ranking.filter((r) => r.call !== "skip" && !r.onHold && (!r.dontMake || r.unranked)).map((r) => r.idea);
   return open.length >= 2 ? open : [];
 }
 

@@ -138,6 +138,12 @@ function tagCount(input: ProductInput): number {
   return input.marketplace === "kdp" ? 7 : 13;
 }
 
+/** Etsy drops any tag over 20 characters, so the writer must count before it returns. */
+const TAG_RULE =
+  "Etsy tags are at most 20 characters each, spaces included ('pickleball scorecard' fits; 'pickleball score " +
+  "tracker' is too long and gets dropped), so write short buyer phrases and count them. KDP keywords are at most 50 " +
+  "characters each.";
+
 /** One structured call. Returns null on refusal; throws on API errors. */
 async function callStructured<S extends z.ZodType>(
   client: Anthropic,
@@ -302,7 +308,8 @@ export async function step0Blind(
           "or empty for other. Do not infer demographics the maker did not state. " +
           "Use the current server date; avoid expired listing years and consider remaining seasonal lead time. " +
           "Never put trademarks, named brands, franchises, comparable titles or their abbreviations in listing title, " +
-          "tags or description. Use generic product language, even when the input contains those names.",
+          "tags or description. Use generic product language, even when the input contains those names. " +
+          TAG_RULE,
         user:
           `Current server date (UTC, ISO): ${currentDate()}\n${describeInput(state.input)}\n\n` +
           `Return one draft per idea (7-field assumptions and listing with ${tagCount(state.input)} tags), ` +
@@ -590,9 +597,14 @@ export async function step10Grounded(
           "challenged. Never put the audience's gender or age band in the title or tags. The description must say " +
           "concretely what the buyer gets, using only what the maker wrote about the product. Every tag must be a phrase a " +
           "buyer would type into the marketplace search for this item; no health, medical, 'evidence based' or results " +
-          "claims and no praise words such as 'well made' in tags or description. A mood word from a taste tag belongs in " +
-          "the title or description; in a tag it must be joined to the product type as a phrase buyers search (e.g. " +
-          "'minimalist coloring book'), never alone or in an odd pairing such as 'journey journal'. The listing must describe " +
+          "claims and no praise words such as 'well made' in tags or description. The title leads with the product the maker " +
+          "described and what it is used for; never reframe it as a different kind of item (a hive inspection log stays an " +
+          "inspection log, not a nature journal). A mood word from a taste tag belongs in the description or cover direction; " +
+          "in the title only when it is a look the product itself has and buyers search for (e.g. 'Minimalist'), never a " +
+          "label or genre borrowed from films or books such as 'Data Driven', 'noir' or 'vibrant fan event'. In a tag it must " +
+          "be joined to the product type as a phrase buyers search (e.g. 'minimalist coloring book'), never alone or in an " +
+          "odd pairing such as 'journey journal'. " + TAG_RULE + " The description is 3-5 plain sentences: what is inside, " +
+          "how the buyer uses it, and the format and size only as the maker gave them. The listing must describe " +
           "the same format your priceFit judged the price suits (printed or digital). " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
           "wording if dates are not supplied. Do not put trademarks, named brands, franchises, comparable titles or their " +
