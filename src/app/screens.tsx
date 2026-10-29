@@ -22,8 +22,26 @@ function say(text: string): string {
 }
 function plural(n: number, one: string, many = `${one}s`) { return `${n} ${n === 1 ? one : many}`; }
 
-/** The app opens Receipts; its target row is expanded before keyboard focus moves to it. */
-function CallChip({ callId, label }: { callId: string; label?: string }) {
+function signed(v: number) { return `${v > 0 ? "+" : v < 0 ? "−" : ""}${number(Math.abs(v), 3)}`; }
+function bandName(b: string) { return b.replace(/^(\d+)_to_(\d+)$/, "$1–$2").replace(/^(\d+)_and_older$/, "$1+").replace(/_/g, " "); }
+/** Display only: a stored evidence field reads as a short phrase; the stored field and value are unchanged. */
+export function evidenceParts(field: string, value: unknown): { name: string; value: string; skew?: number } {
+  const n = typeof value === "number" ? value : undefined;
+  const [head, ...rest] = field.split("."); const tail = rest.join(".");
+  if (head === "age" && tail && n !== undefined) return { name: `Ages ${bandName(tail)}`, value: `${signed(n)} vs avg`, skew: n };
+  if (head === "gender" && (tail === "female" || tail === "male") && n !== undefined) return { name: tail === "female" ? "Women" : "Men", value: `${signed(n)} vs avg`, skew: n };
+  if (field === "query.affinity") return { name: "Taste affinity", value: shown(value) };
+  if (field === "query.velocity" && n !== undefined) return { name: "Trend velocity", value: signed(n) };
+  if (head === "heatmap" && tail) return { name: `Region · ${tail}`, value: shown(value) };
+  if ((head === "affinity" || head === "velocity") && tail) return { name: `${head === "affinity" ? "Affinity" : "Trend"} · ${tail}`, value: n !== undefined && head === "velocity" ? signed(n) : shown(value) };
+  return { name: say(field), value: shown(value) };
+}
+function EvidenceChip({ callId, field, value }: { callId: string; field: string; value: unknown }) {
+  const e = evidenceParts(field, value);
+  return <CallChip callId={callId} label={`${e.name}: ${e.value}`}><span className="ev-name">{e.name}</span>{e.skew !== undefined && Math.abs(e.skew) <= 1 && <span className="ev-bar" aria-hidden="true"><span className={e.skew < 0 ? "is-neg" : "is-pos"} style={e.skew < 0 ? { right: "50%", width: `${Math.abs(e.skew) * 50}%` } : { left: "50%", width: `${e.skew * 50}%` }} /></span>}<span className="ev-value">{e.value}</span></CallChip>;
+}
+/** The app opens Evidence; its target row is expanded before keyboard focus moves to it. */
+function CallChip({ callId, label, children }: { callId: string; label?: string; children?: ReactNode }) {
   return <a href={`#call-${callId}`} className="evidence-link"
     aria-label={`View evidence ${callId}${label ? `: ${label}` : ""}`}
     onClick={(e) => {
@@ -43,14 +61,14 @@ function CallChip({ callId, label }: { callId: string; label?: string }) {
         target.focus({ preventScroll: true });
       };
       window.setTimeout(reveal, 50);
-    }}>{label ?? `Evidence ${callId}`}</a>;
+    }}>{children ? <>{children}<span className="ev-call">call ›</span></> : <span className="ev-call ev-only">View call ›</span>}</a>;
 }
 
 export function Claims({ claims }: { claims: Claim[] }) {
   if (!claims.length) return null;
   return <ul className="claim-list">{claims.map(c => <li key={c.id}>
     <p><span className={`claim-kind claim-${c.kind === "qloo" ? "qloo" : "interpretation"}`}>{c.kind === "qloo" ? "Recorded signal" : "Interpretation"}</span>{say(c.text)}</p>
-    {!!c.evidence.length && <div className="chip-row">{c.evidence.map((e, i) => <CallChip key={i} callId={e.callId} label={`${readable(e.field)}: ${shown(e.value)}`} />)}</div>}
+    {!!c.evidence.length && <div className="chip-row">{c.evidence.map((e, i) => <EvidenceChip key={i} callId={e.callId} field={e.field} value={e.value} />)}</div>}
   </li>)}</ul>;
 }
 function Bar({ value, max = 1, tone = "bar-accent" }: { value: number; max?: number; tone?: string }) {
@@ -107,6 +125,21 @@ export function changeSummary(run: RunState) {
 function firstEvidence(run: RunState, v?: AssumptionVerdict) {
   return v?.claims.filter(c => c.kind === "qloo").flatMap(c => c.evidence).find(e => run.calls.some(c => c.callId === e.callId));
 }
+/** Display only: words in the after title that the before title does not use. */
+function MarkedTitle({ before, after }: { before: string; after: string }) {
+  const key = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const seen = new Set(before.split(/\s+/).map(key).filter(Boolean));
+  // Consecutive new words share one highlight.
+  const out: ReactNode[] = []; let run: string[] = [];
+  const flush = () => { if (!run.length) return; const ws = run[run.length - 1].trim() ? "" : run.pop()!; out.push(<mark key={out.length}>{run.join("")}</mark>); if (ws) out.push(ws); run = []; };
+  for (const w of after.split(/(\s+)/)) {
+    if (!w.trim()) { if (run.length) run.push(w); else out.push(w); }
+    else if (key(w) && !seen.has(key(w))) run.push(w);
+    else { flush(); out.push(w); }
+  }
+  flush();
+  return <>{out}</>;
+}
 export function ChangeSummary({ run }: { run: RunState }) {
   const s = changeSummary(run);
   if (!s) return null;
@@ -119,9 +152,9 @@ export function ChangeSummary({ run }: { run: RunState }) {
   return <section aria-label="Your taste research, at a glance" className="summary">
     <div className="summary-head"><div className="summary-title"><p className="summary-idea">Idea {run.focusIdea + 1} · {run.input.ideas[run.focusIdea]}</p><h2>{headline}</h2><p className="summary-sub">{checked.length} of {verdicts.length} assumptions could be checked against a signal. Taste signals guide your next experiment; they do not predict purchases.</p></div>
       <dl className="summary-counts">{[{ v: "refuted" as const, n: challenged.length }, { v: "supported" as const, n: supported.length }, { v: "unverifiable" as const, n: verdicts.length - checked.length }].map(x => <div key={x.v} className={`count count-${x.v}`}><dt>{VERDICT_WORD[x.v]}</dt><dd>{x.n}</dd></div>)}</dl></div>
-    <div className="summary-finding"><p className="summary-label">{challenged.length ? "The reason to rethink" : "What the check established"}</p><ul>{rows.map(r => <li key={r.key}><span className="summary-field">{r.field}</span><p>{r.text}</p>{r.ev && <CallChip callId={r.ev.callId} label={`${readable(r.ev.field)}: ${shown(r.ev.value)}`} />}</li>)}</ul></div>
-    <div className="summary-drafts">{[{ label: s.noModel ? "Before · your original words" : "Before · model assumptions", draft: s.before }, { label: s.hasEvidence ? "After · informed by taste signals" : "After · draft awaiting evidence", draft: s.after }].map((item, i) => <div key={i} className={i ? "draft-after" : "draft-before"}><p className="summary-label">{item.label}</p><p className="draft-title">{item.draft.title || "Title withheld · generic wording needed"}</p></div>)}</div>
-    {(s.more > 0 || s.call) && <details className="summary-more"><summary>More context and next step</summary>{s.more > 0 && <p>{plural(s.more, "more challenged assumption")} in the findings below.</p>}{s.call && <p className="summary-call">{s.call}</p>}</details>}
+    <div className="summary-finding"><p className="summary-label">{challenged.length ? "The reason to rethink" : "What the check established"}</p><ul>{rows.map(r => <li key={r.key}><span className="summary-field">{r.field}</span><p>{r.text}</p>{r.ev && <EvidenceChip callId={r.ev.callId} field={r.ev.field} value={r.ev.value} />}</li>)}</ul></div>
+    <div className="summary-drafts">{[{ label: s.noModel ? "Before · your original words" : "Before · model assumptions", draft: s.before }, { label: s.hasEvidence ? "After · informed by taste signals" : "After · draft awaiting evidence", draft: s.after }].map((item, i) => <div key={i} className={i ? "draft-after" : "draft-before"}><p className="summary-label">{item.label}</p><p className="draft-title">{i && item.draft.title && s.before.title ? <MarkedTitle before={s.before.title} after={item.draft.title} /> : item.draft.title || "Title withheld · generic wording needed"}</p>{i === 1 && s.hasEvidence && challenged.length > 0 && <p className="draft-why">Changed because: {challenged.map(v => ASSUMPTION_LABELS[v.field]).join(", ")}</p>}</div>)}</div>
+    {(s.more > 0 || s.call) && <div className="summary-next">{s.call && <p><span className="summary-label">Next step</span><span className="summary-call">{s.call}</span></p>}{s.more > 0 && <p className="summary-label">{plural(s.more, "more challenged assumption")} in the Assumptions tab.</p>}</div>}
   </section>;
 }
 export function VerdictScreen({ run }: { run: RunState }) {
@@ -178,7 +211,7 @@ export function WhoTheyAreScreen({ run }: { run: RunState }) {
 }
 export function MakerAssumptionChecks({ run }: { run: RunState }) {
   if (!run.input.ownAssumptions) return null;
-  return <details className="p-panel p-detail"><summary>Your own assumptions <span className="p-muted">· idea {run.focusIdea+1}</span></summary><blockquote className="quote">{run.input.ownAssumptions}</blockquote><ul className="stack">{(run.makerAssumptionChecks ?? []).map((a,i) => <li key={i} className="stack-tight"><p><Verdict v={a.status === "cannot check" ? "unverifiable" : a.status === "contradicts" ? "refuted" : "supported"} /> {readable(a.text)}</p><p className="p-muted small">{a.reason}</p><div className="chip-row">{a.signals.map((s,j) => <CallChip key={j} callId={s.callId} label={`${readable(s.field)}: ${shown(s.value)}`} />)}</div></li>)}</ul></details>;
+  return <details className="p-panel p-detail"><summary>Your own assumptions <span className="p-muted">· idea {run.focusIdea+1}</span></summary><blockquote className="quote">{run.input.ownAssumptions}</blockquote><ul className="stack">{(run.makerAssumptionChecks ?? []).map((a,i) => <li key={i} className="stack-tight"><p><Verdict v={a.status === "cannot check" ? "unverifiable" : a.status === "contradicts" ? "refuted" : "supported"} /> {readable(a.text)}</p><p className="p-muted small">{a.reason}</p><div className="chip-row">{a.signals.map((s,j) => <EvidenceChip key={j} callId={s.callId} field={s.field} value={s.value} />)}</div></li>)}</ul></details>;
 }
 export function ReceiptsScreen({ run }: { run: RunState }) {
   const all = [...(run.verdicts ?? []).flatMap(v => v.claims.map(c => ({ c, where: ASSUMPTION_LABELS[v.field] }))), ...(run.groundedClaims ?? []).map(c => ({ c, where: "Taste-informed draft" }))];
