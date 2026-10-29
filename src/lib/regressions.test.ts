@@ -431,8 +431,9 @@ test("an idea with no taste signal is held as not ranked and listed after the sc
   const run = ranked([[], [0.7], [0.5]]);
   run.ideaNeighbors![0].returned = 10;
   const r = rankIdeas(run);
-  assert.deepEqual(r.map((x) => [x.idea, x.call, !!x.unranked]), [[1, "make", false], [2, "skip", false], [0, "hold", true]]);
-  assert.match(r[0].callReason ?? "", /by \d+ points/);
+  // A lead over an idea the data could not place is not a comparison, so #1 is held, not made.
+  assert.deepEqual(r.map((x) => [x.idea, x.call, !!x.unranked]), [[1, "hold", false], [2, "skip", false], [0, "hold", true]]);
+  assert.match(r[0].callReason ?? "", /not a comparison/);
   assert.match(r[1].callReason ?? "", /35-point line, \d+ points behind #1/);
   assert.doesNotMatch(r.map((x) => x.callReason).join(" "), /0\.\d/);
 });

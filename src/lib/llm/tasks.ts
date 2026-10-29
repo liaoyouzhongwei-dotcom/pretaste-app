@@ -603,7 +603,10 @@ export async function step10Grounded(
           "in the title only when it is a look the product itself has and buyers search for (e.g. 'Minimalist'), never a " +
           "label or genre borrowed from films or books such as 'Data Driven', 'noir' or 'vibrant fan event'. In a tag it must " +
           "be joined to the product type as a phrase buyers search (e.g. 'minimalist coloring book'), never alone or in an " +
-          "odd pairing such as 'journey journal'. " + TAG_RULE + " The description is 3-5 plain sentences: what is inside, " +
+          "odd pairing such as 'journey journal'. At most 2 tags carry a mood word from a taste tag; every other tag is a plain " +
+          "search term for what the item is, what it is used for or who uses it. When the comparables are only loosely " +
+          "related to this product (a sport's equipment brands for a score sheet, a science TV series for an observing log), " +
+          "use their taste tags for the cover mood only and keep the title and tags plain. " + TAG_RULE + " The description is 3-5 plain sentences: what is inside, " +
           "how the buyer uses it, and the format and size only as the maker gave them. The listing must describe " +
           "the same format your priceFit judged the price suits (printed or digital). " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
@@ -619,9 +622,11 @@ export async function step10Grounded(
           "angle that would make this version stand out. This part is shown labelled 'general knowledge, not " +
           "checked against data': no audience statistics and no invented figures; the only numbers allowed are the maker's " +
           "own price and calendar years. Set 'tieBreak' only when no idea is MAKE or FIX in the ranking (top ideas HOLD " +
-          "because their scores are too close to call, or ideas not ranked for lack of data): pick the one to start with " +
-          "among the ideas that are not SKIP, for a practical reason (season now, less effort, price fit) and say the data " +
-          "did not decide it. The pick must agree with your own risks and priceFit: never pick an idea whose priceFit says " +
+          "because their scores are too close to call, or because other ideas were not ranked for lack of data): pick the one " +
+          "to start with among the ideas that are not SKIP, on the product's own merits (how often a buyer uses it, whether " +
+          "free apps or printables replace it, what a buyer would pay for it, season now, effort), and say the data did not " +
+          "decide it. Never give its score, its data coverage or 'it is the selected idea' as the reason; an idea with no " +
+          "data may be the better pick. The pick must agree with your own risks and priceFit: never pick an idea whose priceFit says " +
           "it cannot make money, or whose season is already too late, while another idea has no such problem. Otherwise " +
           "tieBreak is null. In 'notes', for each maker assumption check whose status is 'cannot check' (check = its " +
           "zero-based position in that list), give your general-knowledge read of the maker's belief: 'likely right', " +

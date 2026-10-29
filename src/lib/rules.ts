@@ -646,6 +646,8 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
     ? open.filter((r) => !r.onHold && gap(top.score, r.score) < THRESHOLDS.tieMargin)
     : [];
   const tiedNames = tied.map((r) => `#${ranked.indexOf(r) + 1}`).join(", ");
+  // Ideas left unplaced for lack of data (not because Qloo stopped partway).
+  const uncompared = ranked.filter((r) => r.unranked && !r.onHold);
   const wrongGuesses = (state.verdicts ?? []).filter((v) => v.verdict === "refuted").map((v) => ASSUMPTION_LABELS[v.field].toLowerCase());
   // One note can hold an age and a gender part; name it once.
   const wrongNotes = [...new Set((state.makerAssumptionChecks ?? []).filter((c) => c.status === "contradicts").map((c) => c.text))];
@@ -666,6 +668,13 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
         : `Too close to call: ${pts(top.score)} vs ${pts(second.score)} is under ${pts(THRESHOLDS.tieMargin)} points apart. The checks below use the first one; test both before choosing.`;
       continue;
     }
+    if (r === top && uncompared.length) {
+      // A lead over ideas the data could not place is not a comparison: hold it and say so.
+      r.call = "hold";
+      const others = uncompared.map((u) => `idea ${u.idea + 1}`).join(" and ");
+      r.callReason = `Only idea the data could place: ${others} had too few comparables found in Qloo, so this is not a comparison${wrong.length && r.idea === state.focusIdea ? `, and Qloo challenged ${challenged}` : ""}. Use the score to research this idea, not to choose it over ${others}.`;
+      continue;
+    }
     if (r === top) {
       if (wrong.length && r.idea === state.focusIdea) {
         r.call = "fix";
@@ -679,7 +688,9 @@ function assignCalls(state: RunState, ranked: IdeaScore[]): IdeaScore[] {
     r.call = "skip";
     r.callReason = tied.length
       ? `Above the ${pts(THRESHOLDS.dontMake)}-point line but behind ${tiedNames}, which can't be separated: settle those first.`
-      : top.call === "fix"
+      : top.call === "hold"
+        ? `Above the ${pts(THRESHOLDS.dontMake)}-point line, ${pts(top.score - r.score)} points behind #1, which is held: settle #1 first.`
+        : top.call === "fix"
         ? `Above the ${pts(THRESHOLDS.dontMake)}-point line, ${pts(top.score - r.score)} points behind #1: fix #1 first, then compare again.`
         : `Above the ${pts(THRESHOLDS.dontMake)}-point line, ${pts(top.score - r.score)} points behind #1: make #1 first.`;
   }
