@@ -332,6 +332,43 @@ const FRESH2_INPUTS = [
   },
 ];
 
+// Third sealed set (written 10/29 evening, after the fixes from fresh2; not run before it is scored).
+const FRESH3_INPUTS = [
+  {
+    id: "h-garden",
+    input: { ideas: ["Vegetable garden planner", "Houseplant care log"], marketplace: "kdp", priceUsd: 7.99, ownAssumptions: "Garden planners are bought mostly by men under 25." },
+    planted: { fact: "Home gardeners skew older (35+) and somewhat female; men under 25 are a small minority of buyers." },
+    reps: 1,
+  },
+  {
+    id: "h-fishing",
+    input: { ideas: ["Fishing log book", "Fly tying pattern notebook"], marketplace: "kdp", priceUsd: 8.99, ownAssumptions: "Fishing log books are bought mostly by women." },
+    planted: { fact: "US recreational anglers are mostly male (about two thirds); women are a minority." },
+    reps: 1,
+  },
+  {
+    id: "h-horror",
+    input: { ideas: ["Horror movie watch log", "Gothic creepy sticker set"], marketplace: "etsy", priceUsd: 8, ownAssumptions: "Horror movie fans are mostly people over 65." },
+    planted: { fact: "Horror film audiences skew young, mostly under 35; people over 65 are a small minority." },
+    reps: 1,
+  },
+  {
+    id: "h-tea",
+    input: { ideas: ["Tea tasting journal (printable)", "Matcha lover sticker pack", "Afternoon tea party invitation templates"], marketplace: "etsy", priceUsd: 6 },
+    reps: 3,
+  },
+  {
+    id: "h-running",
+    input: { ideas: ["Marathon training log book", "Beginner 5K running journal"], marketplace: "kdp", priceUsd: 9.99 },
+    reps: 1,
+  },
+  {
+    id: "h-cat",
+    input: { ideas: ["Cat lover birthday card set (printable)", "Cat breed coloring book for kids"], marketplace: "etsy", priceUsd: 5 },
+    reps: 1,
+  },
+];
+
 // Our own decisions (plan §5, docs/cases/C1-C3.md): one run per side, saved for the case record.
 // No judge and no score: the "after" is written by the decision owner from these outputs.
 const CASE_INPUTS = [
@@ -383,13 +420,13 @@ const CASE_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, cases: CASE_INPUTS };
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
 // ---------------------------------------------------------------------------
 function describeInput(input) {
-  const lines = input.ideas.map((idea, i) => `Idea ${i}: ${idea}`);
+  const lines = input.ideas.map((idea, i) => `Idea ${i + 1}: ${idea}`);
   lines.push(`Marketplace: ${input.marketplace}`);
   if (input.priceUsd) lines.push(`Price: $${input.priceUsd}`);
   if (input.ownAssumptions) lines.push(`Maker's own notes: ${input.ownAssumptions}`);
@@ -409,18 +446,18 @@ function llmUser(input) {
 
 Do the whole pre-launch check for these ideas. Return only one JSON object, no prose, in this shape:
 {
-  "ideas": [ { "idea": <index>, "decision": "make" | "fix" | "skip", "reason": "<why>", "risks": ["..."] } ],
-  "topPick": <index of the one idea to make first, or null if none should be made>,
+  "ideas": [ { "idea": <idea number as listed>, "decision": "make" | "fix" | "skip", "reason": "<why>", "risks": ["..."] } ],
+  "topPick": <number of the one idea to make first, or null if none should be made>,
   "buyer": { "ageBands": ["24_and_younger" | "25_to_29" | "30_to_34" | "35_to_44" | "45_to_54" | "55_and_older"],
              "genderLean": "female" | "male" | "neutral", "lifeStage": "...", "aesthetic": ["..."],
              "alsoLikes": ["<concrete titles, brands or shows>"], "trend": "rising" | "flat" | "falling",
              "regionsUS": ["<US states>"] },
-  "comparables": [ { "idea": <index>, "name": "<a real, findable work or brand>", "kind": "book" | "movie" | "tv_show" | "brand" | "videogame" | "artist" | "podcast" } ],
+  "comparables": [ { "idea": <idea number as listed>, "name": "<a real, findable work or brand>", "kind": "book" | "movie" | "tv_show" | "brand" | "videogame" | "artist" | "podcast" } ],
   "makerNotesCheck": [ { "belief": "...", "assessment": "likely right" | "likely wrong" | "unsure", "why": "..." } ],
   "listing": { "title": "...", "tags": [<exactly ${tagCount(input)} tags>], "description": "...", "coverDirection": "..." },
   "confidence": <0-10>
 }
-"buyer" and "listing" are about idea 0. Give 2-3 comparables per idea.`;
+"buyer" and "listing" are about idea 1. Give 2-3 comparables per idea.`;
 }
 
 const JUDGE_SYSTEM =
@@ -465,6 +502,9 @@ function pretasteTop(state) {
   return r.find((x) => !x.dontMake) ?? null;
 }
 
+// The words the app shows for each call (screens.tsx CALL_LABELS).
+const CALL_WORDS = { make: "Research first", fix: "Revise, then research", skip: "Lower research priority", hold: "Hold, more evidence needed" };
+
 function renderPretaste(state) {
   // Mirrors the app (screens.tsx): ideas are numbered from 1 and scores are out of 100, the same as the
   // product's own sentences, so the judge does not see two numbering schemes in one report.
@@ -473,7 +513,7 @@ function renderPretaste(state) {
   const L = ["Ideas, in the app's order (research priority from Qloo taste data, not a sales forecast):"];
   for (const r of state.ranking || []) {
     let line = `- ${n(r.idea)} (${ideas[r.idea]}): ${r.unranked ? "not ranked (no taste signal)" : `${Math.round(r.score * 1000) / 10} / 100`}`;
-    if (r.call) line += ` — ${r.call.toUpperCase()}: ${r.callReason ?? ""}`;
+    if (r.call) line += ` — ${CALL_WORDS[r.call]}: ${r.callReason ?? ""}`;
     else if (r.dontMake) line += ` — don't make (yet): ${r.dontMakeReason ?? ""}`;
     if (r.missing?.length && !r.unranked) line += ` — no signal for: ${r.missing.join(", ")}`;
     L.push(line);
@@ -482,7 +522,7 @@ function renderPretaste(state) {
   const p = state.practical;
   const held = (state.ranking || []).filter((r) => r.call === "hold" && !r.unranked && !r.onHold).map((r) => r.idea);
   if (held.length >= 2) {
-    L.push(`Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores within 3 points).`);
+    L.push(`Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores under 5 points apart).`);
     if (p?.tieBreak) L.push(`Where to start anyway (general knowledge, not checked against data): ${n(p.tieBreak.idea)} — ${p.tieBreak.why}`);
   } else L.push(`Suggested first: ${top ? n(top.idea) : "none"}`);
   // Same content as the app's "Outside the data" section (screens.tsx practicalLines).
@@ -515,13 +555,13 @@ function renderLlm(ans, input) {
   const ideas = input.ideas;
   const L = ["Ideas:"];
   for (const it of ans.ideas || []) {
-    L.push(`- Idea ${it.idea} (${ideas[it.idea] ?? "?"}): ${String(it.decision).toUpperCase()} — ${it.reason}${it.risks?.length ? ` Risks: ${it.risks.join("; ")}` : ""}`);
+    L.push(`- Idea ${it.idea} (${ideas[it.idea - 1] ?? "?"}): ${String(it.decision).toUpperCase()} — ${it.reason}${it.risks?.length ? ` Risks: ${it.risks.join("; ")}` : ""}`);
   }
   L.push(`Suggested first: ${ans.topPick === null || ans.topPick === undefined ? "none" : `Idea ${ans.topPick}`}`);
   const b = ans.buyer || {};
   L.push(
     "",
-    "Buyer for idea 0 (estimate):",
+    "Buyer for idea 1 (estimate):",
     `- Age: ${(b.ageBands || []).join(", ")}`,
     `- Gender: ${b.genderLean}`,
     `- Life stage: ${b.lifeStage}`,
@@ -536,7 +576,7 @@ function renderLlm(ans, input) {
   }
   if (ans.comparables?.length) L.push("", "Comparables: " + ans.comparables.map((c) => `${c.name} (idea ${c.idea})`).join(", "));
   const g = ans.listing;
-  if (g) L.push("", "Listing for idea 0:", `Title: ${g.title}`, `Tags: ${(g.tags || []).join(", ")}`, `Description: ${g.description}`, `Cover: ${g.coverDirection}`);
+  if (g) L.push("", "Listing for idea 1:", `Title: ${g.title}`, `Tags: ${(g.tags || []).join(", ")}`, `Description: ${g.description}`, `Cover: ${g.coverDirection}`);
   if (ans.confidence !== undefined) L.push("", `Confidence: ${ans.confidence}/10`);
   return mask(L.join("\n"));
 }

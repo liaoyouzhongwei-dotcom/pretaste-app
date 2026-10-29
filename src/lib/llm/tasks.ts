@@ -340,7 +340,12 @@ export async function step1Comparables(
         maxTokens: 1500,
         system:
           "Pick well-known, real, findable works or brands (books, films, TV, games, podcasts, artists, brands) whose " +
-          "fans would plausibly buy each product idea. Use the exact common title. 2-3 per idea. Also list up to 6 short " +
+          "fans would plausibly buy each product idea. Use the exact common title. 2-3 per idea. Pick titles about the " +
+          "product's own subject or activity first (for a knitting planner, a bestselling knitting book or a yarn brand; " +
+          "for a pregnancy journal, a bestselling pregnancy book), so their fans are the people who do that activity. Add a " +
+          "general film, TV or game title only when it is itself about that subject. Never use a children's title for a " +
+          "product an adult buys for themselves. Bestselling books and major consumer brands are found most reliably; " +
+          "magazines, small shops and niche brands are usually not found. Also list up to 6 short " +
           "taste tags (e.g. 'cozy', 'slow living') to check.",
         user: describeInput(state.input),
       });
@@ -421,7 +426,9 @@ export async function replaceComparables(
         system:
           "An entity search could not find some comparables. For each idea listed, give up to 2 other real, widely known " +
           "works or brands (bestselling books, hit films or TV shows, popular podcasts, artists or major brands) whose fans " +
-          "would plausibly buy that idea. Use the exact official title. Do not repeat any title already tried. " +
+          "would plausibly buy that idea, about the product's own subject or activity first; prefer bestselling books, since " +
+          "magazines and niche brands are usually not found. Use the exact official title. " +
+          "Do not repeat any title already tried. " +
           "Return candidateTags as an empty list.",
         user: [
           describeInput(input),
@@ -554,7 +561,9 @@ export async function step10Grounded(
           "book unless reworded into a look the product can have); skip tags that do not fit. Keep the blind listing's " +
           "plain product search terms (what the item is and who uses it); replace its mood and audience words that the data " +
           "challenged. Never put the audience's gender or age band in the title or tags. The description must say " +
-          "concretely what the buyer gets, using only what the maker wrote about the product. " +
+          "concretely what the buyer gets, using only what the maker wrote about the product. Every tag must be a phrase a " +
+          "buyer would type into the marketplace search for this item; no health, medical, 'evidence based' or results " +
+          "claims and no praise words such as 'well made' in tags or description. " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
           "wording if dates are not supplied. Do not put trademarks, named brands, franchises, comparable titles or their " +
           "abbreviations in title, tags or description. Evidence names are for analysis only. Use generic product terms. " +
@@ -562,7 +571,9 @@ export async function step10Grounded(
           "saturation, season and lead time from today's date, effort or production cost, trademark or licensing, buyer " +
           "confusion) and 'priceFit': whether the maker's price fits that product and format (say so plainly if it cannot " +
           "make money, e.g. a physical custom item at a digital price; when it does not fit, name the change that would " +
-          "make it work, such as a different format, a bundle or a higher price). In a crowded category, name one concrete " +
+          "make it work, such as a different format, a bundle or a higher price). When the maker did not say whether the item " +
+          "is printed or digital and that decides the fit, judge the format the price suits and say which you assumed. " +
+          "In a crowded category, name one concrete " +
           "angle that would make this version stand out. This part is shown labelled 'general knowledge, not " +
           "checked against data': no audience statistics and no invented figures; the only numbers allowed are the maker's " +
           "own price and calendar years. Set 'tieBreak' only when two or more top ideas are HOLD because their scores are " +

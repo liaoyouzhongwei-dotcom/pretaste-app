@@ -41,8 +41,9 @@ export const THRESHOLDS = {
   dontMake: 0.35,
   /** Mean neighbour affinity below this is treated as no taste signal (a near-zero hit is not evidence). */
   minAffinity: 0.01,
-  /** Top two ideas within this many points are too close to call. */
-  tieMargin: 0.03,
+  /** Top two ideas within this many points are too close to call. Re-running the same ideas moved a score by
+   *  up to 7 points (eval fresh2, 3 runs), so a gap under 5 is not read as a difference. */
+  tieMargin: 0.05,
   /** A guessed look in the strongest quarter of these fans' style tags supports the guess. */
   styleTop: 0.25,
   /** In the weaker half of the list, or missing from a complete list, it challenges the guess. */
@@ -341,6 +342,17 @@ function judge(state: RunState, field: AssumptionField): Omit<AssumptionVerdict,
         (x) => verdictBy(x, THRESHOLDS.ageSkew));
       const reason = `the guessed age groups score ${Math.abs(gap)} ${gap < 0 ? "below" : "above"} the other age groups of the same audience (each against the average Qloo audience; a gap beyond ±${THRESHOLDS.ageSkew} counts as a lean; taste affinity, not purchase intent)`;
       if (stability && !stability.held) return { verdict: "unverifiable", reason: reason + restsOnOne(stability), claims, stability };
+      // A higher average can hide a guessed band that is clearly weaker than the rest; that guess is mixed, not supported.
+      const othersMean = meanOf(others.map(([, x]) => x))!;
+      const weak = mineBands.filter(([, x]) => x < othersMean - THRESHOLDS.ageSkew);
+      if (v === "supported" && weak.length) {
+        return {
+          verdict: "unverifiable",
+          reason: `mixed: ${reason}, but ${weak.map(([b, x]) => `${b} (${x})`).join(", ")} ${weak.length > 1 ? "are" : "is"} more than ${THRESHOLDS.ageSkew} below the other age groups`,
+          claims: [...claims, claim(`Guessed band${weak.length > 1 ? "s" : ""} ${weak.map(([b, x]) => `${b} (${x})`).join(", ")} below the other age groups.`, "qloo", evOf(weak))],
+          ...(stability ? { stability } : {}),
+        };
+      }
       return { verdict: v, reason, claims, ...(stability ? { stability } : {}) };
     }
     case "gender": {

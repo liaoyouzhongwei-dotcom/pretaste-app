@@ -338,13 +338,13 @@ test("two ideas within the tie margin are both held, not one made (A4)", () => {
   assert.match(r[0].callReason ?? "", /Too close to call/);
 });
 
-test("a tie is decided on the shown (rounded) scores: exactly 0.03 apart is not a tie (M4 N11)", () => {
+test("a tie is decided on the shown (rounded) scores: exactly 0.05 apart is not a tie (M4 N11)", () => {
   let checked = 0;
   for (let k = 0; k <= 60; k++) {
     const r = rankIdeas(ranked([[0.5], [0.5 - k / 1000]]));
     const [a, b] = r;
     const shownGap = Math.round((a.score - b.score) * 100);
-    assert.equal(a.call === "hold", shownGap < 3, `scores ${a.score} vs ${b.score}: call ${a.call}`);
+    assert.equal(a.call === "hold", shownGap < 5, `scores ${a.score} vs ${b.score}: call ${a.call}`);
     checked++;
   }
   assert.equal(checked, 61);
@@ -831,7 +831,7 @@ test("outside-the-data notes keep only the maker's price and years as numbers; t
   assert.equal(checkPractical(undefined, 3, tied, 12), undefined);
   // Naming an idea row or quoting the tied scores is not an invented figure.
   const named = checkPractical(
-    { ideas: [{ idea: 0, risks: ["Idea 1 competes with idea 0 for the same buyers."], priceFit: "" }], tieBreak: { idea: 0, why: "Idea 0 and Idea 1 both score 0.95/0.94, under 0.03 apart; start with idea 0 because it is in season." } },
+    { ideas: [{ idea: 0, risks: ["Idea 1 competes with idea 0 for the same buyers."], priceFit: "" }], tieBreak: { idea: 0, why: "Idea 0 and Idea 1 both score 0.95/0.94, under 0.05 apart; start with idea 0 because it is in season." } },
     3, tied, 12, new Date("2026-10-26T00:00:00Z"),
   );
   // The model's 0-based idea numbers are shown as the maker's 1-based ones.
@@ -1007,4 +1007,15 @@ test("replacement comparables skip titles already tried, keep at most 2 per idea
   ], missing);
   assert.deepEqual(picked.map((c) => c.name), ["[SYN] New A", "[SYN] New B"]);
   assert.deepEqual((await replaceComparables(state().input, missing)).value, []);
+});
+
+test("a guessed age band clearly below the others makes the age guess mixed, not supported", () => {
+  const run = state();
+  run.assumptions = { age: { bands: ["30_to_34", "35_to_44", "45_to_54"], note: "" }, gender: { lean: "female", note: "" }, lifeStage: { value: "" },
+    aesthetic: { tags: [], note: "" }, likes: { note: "" }, trendDirection: { value: "flat" }, region: { states: [], note: "" } } satisfies AssumptionSheet;
+  // Synthetic values: the guessed bands average higher, but 35_to_44 is far below the other groups.
+  run.demographics = { age: { "24_and_younger": -0.03, "25_to_29": -0.1, "30_to_34": 0.11, "35_to_44": -0.38, "45_to_54": -0.03, "55_and_older": -0.43 }, gender: { female: 0.3 }, callId: "SYN-mixed" };
+  const age = computeVerdicts(run).find((v) => v.field === "age")!;
+  assert.equal(age.verdict, "unverifiable");
+  assert.match(age.reason, /^mixed: .*35_to_44 \(-0\.38\)/);
 });
