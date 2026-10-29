@@ -610,7 +610,51 @@ const FRESH8_INPUTS = [
   },
 ];
 
-const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, fresh6: FRESH6_INPUTS, fresh7: FRESH7_INPUTS, fresh8: FRESH8_INPUTS, cases: CASE_INPUTS };
+// Ninth fresh set (--set fresh9, sealed 2026-10-29 night, before any run): the same scope as fresh8 (popular
+// entertainment Qloo covers directly), new topics. It tests one change: the practical read became its own model
+// call (a call per idea, what stops an idea, a start pick when the data ties) and the app leads with that pick.
+// Same judge prompts as every earlier set. Stability is now measured on the idea the app shows as "Suggested
+// first" (see sigPretaste). Run once on a preview deployment of the change, before production is touched.
+// Decision rule fixed before the run: production moves to this version only if Pretaste wins 4 or more of the
+// 6 preference comparisons and does not score lower than the model alone on the planted beliefs; otherwise
+// production stays as it is. Reported whatever the result. Not edited after the sealing commit.
+const FRESH9_INPUTS = [
+  {
+    id: "n-scifi",
+    input: { ideas: ["Sci-fi movie watch log journal", "Space opera coloring book for adults"], marketplace: "kdp", priceUsd: 7.99, ownAssumptions: "Sci-fi movie journals sell mostly to women over 60." },
+    planted: { fact: "Science fiction film audiences skew male and under 50; women over 60 are a small share." },
+    reps: 1,
+  },
+  {
+    id: "n-musical",
+    input: { ideas: ["Musical theatre show memory journal", "Show tune lyrics hand-lettering workbook"], marketplace: "etsy", priceUsd: 6, ownAssumptions: "Musical theatre journals sell mostly to men over 55." },
+    planted: { fact: "Musical theatre audiences skew female; men over 55 are a small share." },
+    reps: 1,
+  },
+  {
+    id: "n-wrestling",
+    input: { ideas: ["Pro wrestling event watch journal", "Wrestling fan trivia card deck"], marketplace: "etsy", priceUsd: 6, ownAssumptions: "Pro wrestling journals sell mostly to women over 60." },
+    planted: { fact: "Pro wrestling audiences skew male; women over 60 are a small share." },
+    reps: 1,
+  },
+  {
+    id: "n-bakeshow",
+    input: { ideas: ["Baking competition show recipe journal", "Cozy mystery novel reading log"], marketplace: "kdp", priceUsd: 8.99 },
+    reps: 3,
+  },
+  {
+    id: "n-comedy",
+    input: { ideas: ["Stand-up comedy open mic set notebook", "Sitcom trivia card deck"], marketplace: "etsy", priceUsd: 7 },
+    reps: 1,
+  },
+  {
+    id: "n-fantasy",
+    input: { ideas: ["Fantasy book series reading tracker", "Tabletop RPG game master campaign planner"], marketplace: "kdp", priceUsd: 9.99 },
+    reps: 1,
+  },
+];
+
+const SETS = { dev: INPUTS, holdout: HOLDOUT_INPUTS, fresh: FRESH_INPUTS, fresh2: FRESH2_INPUTS, fresh3: FRESH3_INPUTS, fresh4: FRESH4_INPUTS, fresh5: FRESH5_INPUTS, fresh6: FRESH6_INPUTS, fresh7: FRESH7_INPUTS, fresh8: FRESH8_INPUTS, fresh9: FRESH9_INPUTS, cases: CASE_INPUTS };
 
 // ---------------------------------------------------------------------------
 // prompts
@@ -716,12 +760,14 @@ function renderPretaste(state) {
     L.push(held.length >= 2
       ? `Suggested first: the data cannot separate ${held.map(n).join(" and ")} (scores under 8 points apart).`
       : "Suggested first: the data does not name a first idea.");
-    if (p?.tieBreak) L.push(`Where to start anyway (general knowledge, not checked against data): ${n(p.tieBreak.idea)} — ${p.tieBreak.why}`);
+    if (p?.tieBreak) L.push(`Suggested first (general knowledge, not checked against data): ${n(p.tieBreak.idea)} — ${p.tieBreak.why}`);
   }
+  const stop = named && p?.ideas?.find((it) => it.idea === named.idea)?.blocker;
+  if (stop) L.push(`Check before you start (general knowledge): ${stop}`);
   // Same content as the app's "Outside the data" section (screens.tsx practicalLines).
   if (p?.ideas?.length) {
     L.push("", "Outside the data (general knowledge from the model, not checked against data):");
-    for (const it of p.ideas) L.push(`- ${n(it.idea)}${it.priceFit ? ` — price: ${it.priceFit}` : ""}${it.risks.length ? ` — risks: ${it.risks.join("; ")}` : ""}`);
+    for (const it of p.ideas) L.push(`- ${n(it.idea)}${it.read ? ` — ${it.read}` : ""}${it.reason ? `: ${it.reason}` : ""}${it.blocker ? ` — stops this idea: ${it.blocker}` : ""}${it.priceFit ? ` — price: ${it.priceFit}` : ""}${it.risks.length ? ` — risks: ${it.risks.join("; ")}` : ""}`);
   }
   // Same content as the app's "Your assumptions" section (screens.tsx summary export).
   if (state.input.ownAssumptions) {
@@ -782,7 +828,10 @@ function renderLlm(ans, input) {
 // ---------------------------------------------------------------------------
 function sigPretaste(state) {
   if (!state?.ranking?.length) return "error";
-  const top = pretasteTop(state);
+  // From fresh9 on: the idea the app shows as "Suggested first" (the data's make/fix idea, else the general-knowledge
+  // start pick, else the top-scored idea). Sets up to fresh8 were measured on the top-scored idea only.
+  const named = state.ranking.find((r) => r.call === "make" || r.call === "fix");
+  const top = named ?? (state.practical?.tieBreak ? { idea: state.practical.tieBreak.idea } : pretasteTop(state));
   const skip = state.ranking.filter((x) => x.dontMake).map((x) => x.idea).sort();
   return `top=${top ? top.idea : "none"};skip=${skip.join(",")}`;
 }

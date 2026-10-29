@@ -181,11 +181,16 @@ test("server date is ISO and both model prompts receive the same injected date w
     fakeClient.mock.mockImplementation(() => null);
     fakeClient.mock.restore();
   }
-  assert.equal(prompts.length, 2);
+  // Step 0, then step 10's listing call and its separate practical call.
+  assert.equal(prompts.length, 3);
   assert.equal(prompts[0].max_tokens, 2000);
   assert.ok(prompts.every((p) => p.messages[0].content.includes("2031-10-22")));
-  assert.ok(prompts.every((p) => /seasonal/i.test(p.system) && /trademarks/i.test(p.system)));
-  assert.ok(prompts[1].messages[0].content.includes("Selected idea: 1: Travel journal"));
+  const listing = prompts.filter((p) => /Rewrite the listing/.test(p.system)), practical = prompts.filter((p) => /practical merits/.test(p.system));
+  assert.equal(listing.length, 1);
+  assert.equal(practical.length, 1);
+  assert.ok([prompts[0], ...listing].every((p) => /seasonal/i.test(p.system) && /trademarks/i.test(p.system)));
+  assert.ok(/season/i.test(practical[0].system) && /trademark/i.test(practical[0].system));
+  assert.ok(listing[0].messages[0].content.includes("Selected idea: 1: Travel journal"));
 });
 
 test("focus selection uses the ranked idea for audience calls, verdicts, evidence and offline listing", async () => {

@@ -237,7 +237,16 @@ export interface IdeaNeighbors {
  * General knowledge from the writer model, never checked against data; shown with that label.
  */
 export interface PracticalCheck {
-  ideas: { idea: number; risks: string[]; priceFit: string }[];
+  ideas: {
+    idea: number;
+    risks: string[];
+    priceFit: string;
+    /** The model's practical call, as a seller with no taste data would make it. */
+    read?: "good bet" | "risky" | "poor bet";
+    reason?: string;
+    /** A problem that stops the idea whatever the taste data says. */
+    blocker?: string;
+  }[];
   /** Only when no idea is make or fix (a tie, or ideas the data could not rank): where to start, for a practical reason. */
   tieBreak: { idea: number; why: string } | null;
   /** General-knowledge read of a maker note the data could not settle (check = index in makerAssumptionChecks). */

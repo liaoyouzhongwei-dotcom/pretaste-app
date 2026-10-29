@@ -96,6 +96,11 @@ const PracticalSchema = z.object({
   ideas: z.array(
     z.object({
       idea: z.number().int(),
+      /** The model's practical call on this idea, made the way a seller with no taste data would. */
+      read: z.enum(["good bet", "risky", "poor bet"]),
+      reason: z.string(),
+      /** A problem that stops this idea whatever the taste data says (the marketplace cannot make it, rights risk); "" when none. */
+      blocker: z.string(),
       risks: z.array(z.string()),
       priceFit: z.string(),
     }),
@@ -115,7 +120,6 @@ const Step10Schema = z.object({
       evidenceIds: z.array(z.string()),
     }),
   ),
-  practical: PracticalSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -567,6 +571,50 @@ function strip(e: EvidenceItem): Evidence {
   return { callId: e.callId, entityId: e.entityId, field: e.field, value: e.value };
 }
 
+/**
+ * The practical read, in its own call so it gets the same care a model with no taste data gives it.
+ * The taste data ranks research priority; this call judges what the data cannot see. Shown labelled as general knowledge.
+ */
+async function step10Practical(c: Anthropic, state: RunState, rankLines: string[]): Promise<PracticalDraft | null> {
+  return callStructured(c, {
+    model: MODELS.writer,
+    schema: PracticalSchema,
+    effort: "medium",
+    maxTokens: 3000,
+    system:
+      "You are an experienced independent seller judging product ideas on their practical merits, for a maker who will " +
+      "read your notes next to a taste-data ranking. Judge EVERY idea as a seller would without any taste data: " +
+      "'read' is 'good bet', 'risky' or 'poor bet'; 'reason' is one or two plain sentences on the deciding point (can this " +
+      "marketplace produce and ship this format, does the maker's price cover the cost, how crowded it is and what free " +
+      "apps or printables replace it, how often a buyer needs it, season and lead time from today's date, effort). " +
+      "'blocker' names a problem that stops the idea whatever the data says (the marketplace cannot produce that item, " +
+      "the price cannot cover the cost, a trademark, licence or fan-art rights risk, the season is already past); " +
+      "otherwise an empty string. Do not call ordinary competition a blocker. 'risks': 1-3 short risks. 'priceFit': " +
+      "whether the maker's price fits that product and format; when it does not fit, name the change that would make it " +
+      "work (a different format, a bundle or a higher price); when the maker did not say printed or digital and that " +
+      "decides the fit, say which you assumed. In a crowded category name one concrete angle that would make this version " +
+      "stand out. Set 'tieBreak' when no idea is MAKE or FIX in the ranking: pick the one to start with among the ideas " +
+      "that are not SKIP, on the product's own merits, consistent with your reads (never an idea with a blocker or a " +
+      "'poor bet' while another has neither), and say in 'why' what makes it the better first test; an idea with no data " +
+      "may be the better pick. Never give its score, its data coverage or 'it is the selected idea' as the reason. " +
+      "Otherwise tieBreak is null. In 'notes', for each maker assumption check whose status is 'cannot check' (check = " +
+      "its zero-based position in that list), give your read of the maker's belief: 'likely right', 'likely wrong' or " +
+      "'unsure', and one plain sentence why. Leave notes empty when there is none. Everything here is shown labelled " +
+      "'general knowledge, not checked against data': no audience statistics and no invented figures; the only numbers " +
+      "allowed are the maker's own price and calendar years. Refer to ideas by their zero-based number as 'idea N'.",
+    user: [
+      `Current server date (UTC, ISO): ${currentDate()}`,
+      describeInput(state.input),
+      `Maker assumption checks: ${JSON.stringify(state.makerAssumptionChecks ?? [])}`,
+      "",
+      "Ranking by fixed rules from taste data (research priority, not sales):",
+      ...rankLines,
+      "",
+      "Give your practical read of every idea.",
+    ].join("\n"),
+  });
+}
+
 export async function step10Grounded(
   state: RunState,
   ev: EvidenceItem[] = buildEvidence(state),
@@ -580,6 +628,7 @@ export async function step10Grounded(
       const rankLines = [...(state.ranking ?? [])]
         .sort((a, b) => b.score - a.score)
         .map((r) => `- Idea ${r.idea}: score ${r.score}${r.call ? ` -> ${r.call.toUpperCase()} (${r.callReason ?? ""})` : ""}`);
+      const practicalP = step10Practical(c, state, rankLines).catch(() => undefined);
       const out = await callStructured(c, {
         model: MODELS.writer,
         schema: Step10Schema,
@@ -616,29 +665,11 @@ export async function step10Grounded(
           "When the maker gave no format, size or page count, leave them out; never write a placeholder such as 'as listed " +
           "on the product page'. Never paste a taste tag's wording (e.g. 'meticulously detailed', 'visually gritty') into " +
           "buyer copy; say the look in words a buyer would use. The listing must describe " +
-          "the same format your priceFit judged the price suits (printed or digital). " +
+          "the same format the maker's price suits (printed or digital; when the maker did not say, the one a buyer would expect at that price). " +
           "Use the current server date; never use expired listing years. Consider seasonal lead time and prefer undated " +
           "wording if dates are not supplied. Do not put trademarks, named brands, franchises, comparable titles or their " +
           "abbreviations in title, tags or description. Evidence names are for analysis only. Use generic product terms. " +
-          "Separately fill 'practical' for EVERY idea: 1-3 practical risks the taste data cannot see (competition or " +
-          "saturation, season and lead time from today's date, effort or production cost, trademark or licensing, buyer " +
-          "confusion) and 'priceFit': whether the maker's price fits that product and format (say so plainly if it cannot " +
-          "make money, e.g. a physical custom item at a digital price; when it does not fit, name the change that would " +
-          "make it work, such as a different format, a bundle or a higher price). When the maker did not say whether the item " +
-          "is printed or digital and that decides the fit, judge the format the price suits and say which you assumed. " +
-          "In a crowded category, name one concrete " +
-          "angle that would make this version stand out. This part is shown labelled 'general knowledge, not " +
-          "checked against data': no audience statistics and no invented figures; the only numbers allowed are the maker's " +
-          "own price and calendar years. Set 'tieBreak' only when no idea is MAKE or FIX in the ranking (top ideas HOLD " +
-          "because their scores are too close to call, or because other ideas were not ranked for lack of data): pick the one " +
-          "to start with among the ideas that are not SKIP, on the product's own merits (how often a buyer uses it, whether " +
-          "free apps or printables replace it, what a buyer would pay for it, season now, effort), and say the data did not " +
-          "decide it. Never give its score, its data coverage or 'it is the selected idea' as the reason; an idea with no " +
-          "data may be the better pick. The pick must agree with your own risks and priceFit: never pick an idea whose priceFit says " +
-          "it cannot make money, or whose season is already too late, while another idea has no such problem. Otherwise " +
-          "tieBreak is null. In 'notes', for each maker assumption check whose status is 'cannot check' (check = its " +
-          "zero-based position in that list), give your general-knowledge read of the maker's belief: 'likely right', " +
-          "'likely wrong' or 'unsure', and one plain sentence why, with no statistics. Leave notes empty when there is none.",
+          "Write only the listing and the claims.",
         user: [
           `Current server date (UTC, ISO): ${currentDate()}`,
           describeInput(state.input),
@@ -667,7 +698,7 @@ export async function step10Grounded(
         kind: cl.kind,
         evidence: cl.evidenceIds.map((id) => byId.get(id)).filter((e): e is EvidenceItem => !!e).map(strip),
       }));
-      return { listing: out.listing, claims, practical: out.practical };
+      return { listing: out.listing, claims, practical: (await practicalP) ?? undefined };
     },
     () => offlineStep10(state, ev, fx),
     fx ? "fixture" : "rules",
